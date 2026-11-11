@@ -1,0 +1,27 @@
+<resources>
+    <style name="Theme.Nexus" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="colorPrimary">#7B6CFF</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#3DE0FF</item>
+        <item name="android:windowBackground">@color/nx_bg</item>
+        <item name="android:statusBarColor">@color/nx_bg</item>
+        <item name="android:navigationBarColor">@color/nx_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:textColorPrimary">#EAF0FF</item>
+        <item name="alertDialogTheme">@style/Theme.Nexus.Dialog</item>
+    </style>
+    <style name="Theme.Nexus.Dialog" parent="Theme.MaterialComponents.Dialog.Alert">
+        <item name="colorPrimary">#7B6CFF</item>
+        <item name="colorSurface">#1B2540</item>
+        <item name="colorOnSurface">#EAF0FF</item>
+        <item name="android:textColorPrimary">#EAF0FF</item>
+        <item name="android:textColorSecondary">#9AA7C7</item>
+    </style>
+    <style name="Theme.Nexus.Transparent" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
+</resources>
