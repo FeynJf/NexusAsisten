@@ -500,4 +500,6 @@ class OverlayService : Service(), PanelHost {
         crosshairView = null
         val ctx = applicationContext
         bg.execute { try { Booster.restore(ctx) } catch (_: Exception) {} }
-        bg.shutdow
+        bg.shutdown()
+    }
+}
