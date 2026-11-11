@@ -4,12 +4,11 @@ on:
   push:
     branches: [ main, master ]
     tags: [ 'v*' ]
-  pull_request:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -20,24 +19,33 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install SDK packages
-        run: sdkmanager "platforms;android-33" "build-tools;33.0.2"
-
-      # gradlew bawaan proyek lama hanya placeholder, jadi Gradle dipasang langsung.
+      # SDK Android sudah terpasang di runner (platform 33 + lisensi), jadi tidak perlu setup-android.
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '7.5.1'
 
+      - name: Info lingkungan
+        run: |
+          java -version
+          gradle --version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" || true
+
       - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+        run: gradle assembleDebug --stacktrace --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: NexusAsisten-debug
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload laporan jika gagal
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports
+          path: app/build/reports
 
       - name: Publish release (on tag)
         if: startsWith(github.ref, 'refs/tags/v')
