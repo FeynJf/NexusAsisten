@@ -2,7 +2,6 @@ package com.nexus.asisten.core
 
 import android.Manifest
 import android.app.NotificationManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -10,7 +9,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
-import androidx.core.app.NotificationManagerCompat
 import com.nexus.asisten.data.PlayStats
 
 /**
@@ -23,8 +21,6 @@ object Perms {
     fun writeSettings(ctx: Context) = Settings.System.canWrite(ctx)
     fun dnd(ctx: Context) =
         (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).isNotificationPolicyAccessGranted
-    fun notifListener(ctx: Context) =
-        NotificationManagerCompat.getEnabledListenerPackages(ctx).contains(ctx.packageName)
 
     fun postNotif(ctx: Context) =
         Build.VERSION.SDK_INT < 33 ||
@@ -99,17 +95,6 @@ object Perms {
         Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS),
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkgUri(ctx))
     )
-
-    fun openNotifListener(ctx: Context): Boolean {
-        val comp = ComponentName(ctx, NexusNotificationListener::class.java).flattenToString()
-        return openFirst(
-            ctx,
-            Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
-                .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, comp),
-            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS),
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkgUri(ctx))
-        )
-    }
 
     fun openInstallApps(ctx: Context) = openFirst(
         ctx,

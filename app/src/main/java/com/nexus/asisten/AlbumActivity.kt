@@ -46,6 +46,7 @@ class AlbumActivity : AppCompatActivity() {
         rv = RecyclerView(this)
         rv.layoutManager = GridLayoutManager(this, 3)
         rv.adapter = Adapter()
+        Fx.listAnim(rv)
         rv.setPadding(dp(10), dp(10), dp(10), dp(10))
         rv.clipToPadding = false
         body.addView(rv, FrameLayout.LayoutParams(MATCH, MATCH))

@@ -6,6 +6,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import androidx.appcompat.app.AppCompatActivity
 import com.nexus.asisten.core.GameConflict
+import com.nexus.asisten.core.GameUtils
 import com.nexus.asisten.core.Perms
 import com.nexus.asisten.core.Updater
 import com.nexus.asisten.data.Prefs
@@ -58,8 +59,7 @@ class SettingsActivity : AppCompatActivity() {
             else -> about(col)
         }
         body.addView(sv, FrameLayout.LayoutParams(MATCH, MATCH))
-        sv.alpha = 0f
-        sv.animate().alpha(1f).setDuration(180).start()
+        Fx.stagger(col, 0L, 45L)
     }
 
     private fun group(col: LinearLayout, title: String, build: (LinearLayout) -> Unit) {
@@ -90,6 +90,30 @@ class SettingsActivity : AppCompatActivity() {
                 dns.add(ghostButton("Lihat caranya") { permItems().firstOrNull { it.id == "secure" }?.let { handlePerm(it) } }, t = 8)
             }
             c.addView(dns)
+        }
+
+        group(col, "Jendela mengambang") { c ->
+            c.addView(switchRow("Buka aplikasi overlay sebagai jendela", "Aplikasi dari tab Aplikasi di overlay dibuka mengambang di atas game.", Prefs.floatingWindow) { Prefs.floatingWindow = it })
+            val box = vbox(16, 10)
+            box.addView(tv("Ukuran jendela", 15f, NX.TEXT, 500))
+            box.add(chipRow(listOf("Kecil", "Sedang", "Besar"), Prefs.floatSize) { Prefs.floatSize = it }, t = 10, b = 6)
+            val ok = GameUtils.freeformSupported(this)
+            box.add(tv(
+                if (ok) "Mode jendela aktif di HP ini."
+                else "Mode jendela belum aktif di HP ini, jadi aplikasi dibuka layar penuh. Aktifkan salah satu cara di bawah, lalu restart HP.",
+                12.5f, if (ok) NX.GOOD else NX.WARN
+            ), t = 8)
+            if (!ok) {
+                box.add(tv("Opsi Pengembang → \"Aktifkan jendela freeform\" dan \"Paksa aktivitas agar dapat diubah ukurannya\".", 12f, NX.TEXT2), t = 6)
+                box.add(ghostButton("Salin perintah ADB") {
+                    copyText("adb", "adb shell settings put global enable_freeform_support 1\nadb shell settings put global force_resizable_activities 1")
+                }, t = 10)
+                if (Perms.secure(this)) box.add(gradientButton("Aktifkan sekarang") {
+                    Fx.say(this, if (GameUtils.enableFreeform(this)) "Aktif. Restart HP untuk menerapkan." else "Gagal mengaktifkan", Fx.OK)
+                }, t = 8)
+            }
+            c.add(divider(), MATCH, 1, 0f, 16, 0, 16, 0)
+            c.addView(box)
         }
 
         group(col, "Kompatibilitas") { c ->
@@ -179,12 +203,26 @@ class SettingsActivity : AppCompatActivity() {
         c.addView(tv("Asisten Game ringan untuk HP: panel overlay, profil performa per game, perekaman, dan statistik waktu bermain.", 14f, NX.TEXT2))
         col.addView(c)
 
+        col.add(sectionTitle("Jika Play Protect memblokir pemasangan"), t = 18, b = 8)
+        val pp = card(22)
+        pp.setPadding(dp(18), dp(16), dp(18), dp(16))
+        pp.addView(tv(
+            "Play Protect di beberapa negara memblokir APK dari browser/file manager yang memakai izin sensitif " +
+                "(akses notifikasi, aksesibilitas, SMS). Versi ini sudah tidak memakai akses notifikasi.\n\n" +
+                "Bila masih diblokir karena aplikasi baru dan belum dikenal:\n" +
+                "1. Ketuk \"Detail lainnya\" lalu \"Tetap instal\".\n" +
+                "2. Kalau tombol itu tidak ada: Play Store → foto profil → Play Protect → ikon gerigi → matikan \"Pindai aplikasi dengan Play Protect\" sebentar, pasang, lalu nyalakan lagi.\n" +
+                "3. Di OPPO/realme, pilih \"Lanjutkan\"/\"Instal tetap\" pada pemeriksaan keamanan ColorOS.",
+            13f, NX.TEXT2
+        ))
+        col.addView(pp)
+
         col.add(sectionTitle("Apa yang nyata dan apa yang terbatas"), t = 18, b = 8)
         val n = card(22)
         n.setPadding(dp(18), dp(16), dp(18), dp(16))
         n.addView(tv(
             "Nyata: suhu & baterai, latensi (ping TCP), pengosongan RAM yang aman untuk asisten lain, kunci Wi-Fi latensi rendah, " +
-                "cuplikan & rekaman layar, Jangan Ganggu, pencegahan salah sentuh, bantuan bidik, kecerahan, volume, waktu bermain.\n\n" +
+                "cuplikan & rekaman layar, Jangan Ganggu, pencegahan salah sentuh, bantuan bidik, kecerahan, volume, jendela mengambang (bila HP mendukung), waktu bermain.\n\n" +
                 "FPS: akurat jika izin DUMP diberikan lewat ADB:\nadb shell pm grant $ADB_PKG android.permission.DUMP\n" +
                 "Tanpa itu angka FPS berupa estimasi (diberi tanda ~).\n\n" +
                 "Terbatas: laju refresh dan sampling sentuhan bergantung pada ROM. Android tidak mengizinkan aplikasi biasa " +

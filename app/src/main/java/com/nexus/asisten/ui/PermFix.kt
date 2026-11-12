@@ -40,8 +40,6 @@ fun Activity.permItems(): List<PermItem> = listOf(
         Perms.writeSettings(this), open = { Perms.openWrite(it) }),
     PermItem("dnd", "Jangan Ganggu", "Blokir panggilan & notifikasi saat bermain.",
         Perms.dnd(this), open = { Perms.openDnd(it) }),
-    PermItem("notif_listener", "Akses notifikasi", "Titik indikator notifikasi di overlay.",
-        Perms.notifListener(this), restricted = true, open = { Perms.openNotifListener(it) }),
     PermItem("post_notif", "Tampilkan notifikasi", "Notifikasi Asisten aktif & pembaruan.",
         Perms.postNotif(this), runtime = Manifest.permission.POST_NOTIFICATIONS, open = { Perms.openAppNotifications(it) }),
     PermItem("mic", "Mikrofon", "Hanya untuk rekam layar dengan suara mikrofon.",

@@ -2,10 +2,20 @@ package com.nexus.asisten.ui
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.content.res.Resources
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorFilter
+import android.graphics.LinearGradient
+import android.graphics.Outline
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.RippleDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -16,32 +26,92 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.widget.SwitchCompat
 
-/** Palet Nexus: indigo gelap + violet sebagai aksen, cyan untuk data langsung. */
+/** Palet Nexus Gamer: hitam pekat, aksen neon violet + cyan. */
 object NX {
-    val BG = Color.parseColor("#070A12")
-    val SURFACE_DEEP = Color.parseColor("#0A0F1D")
-    val SURFACE_HI = Color.parseColor("#18223D")
-    val SURFACE = Color.parseColor("#0F1628")
-    val SURFACE2 = Color.parseColor("#172038")
-    val LINE = Color.parseColor("#1FFFFFFF")
-    val TEXT = Color.parseColor("#F1F4FF")
-    val TEXT2 = Color.parseColor("#A3AFCF")
-    val MUTED = Color.parseColor("#6B7899")
-    val ACCENT = Color.parseColor("#8E7BFF")
-    val ACCENT_DEEP = Color.parseColor("#5B47F5")
-    val CYAN = Color.parseColor("#3DE0FF")
-    val GOOD = Color.parseColor("#3DDC97")
-    val WARN = Color.parseColor("#FFB347")
-    val HOT = Color.parseColor("#FF5D5D")
+    val BG = Color.parseColor("#04050A")
+    val SURFACE_DEEP = Color.parseColor("#080A12")
+    val SURFACE_HI = Color.parseColor("#131828")
+    val SURFACE = Color.parseColor("#0C101B")
+    val SURFACE2 = Color.parseColor("#141A2B")
+    val LINE = Color.parseColor("#24FFFFFF")
+    val TEXT = Color.parseColor("#F4F6FF")
+    val TEXT2 = Color.parseColor("#A8B1D0")
+    val MUTED = Color.parseColor("#667094")
+    val ACCENT = Color.parseColor("#9D6BFF")
+    val ACCENT_DEEP = Color.parseColor("#6A3DF0")
+    val BLUE = Color.parseColor("#2B8CFF")
+    val CYAN = Color.parseColor("#21E6FF")
+    val GOOD = Color.parseColor("#3DF0A0")
+    val WARN = Color.parseColor("#FFB84D")
+    val HOT = Color.parseColor("#FF4D6A")
     val PRO = Color.parseColor("#FF7A3D")
-    val SCRIM = Color.parseColor("#B3050810")
+    val SCRIM = Color.parseColor("#B3000000")
+    val GLASS = Color.parseColor("#D905070D")
 }
 
-/** Latar layar: gradien indigo sangat gelap, memberi kesan kedalaman. */
-fun screenBg(): GradientDrawable = GradientDrawable(
-    GradientDrawable.Orientation.TOP_BOTTOM,
-    intArrayOf(Color.parseColor("#101638"), NX.BG, Color.parseColor("#060911"))
-)
+fun withAlpha(color: Int, alpha: Int): Int = (color and 0x00FFFFFF) or (alpha.coerceIn(0, 255) shl 24)
+
+/** Latar layar: hitam dengan cahaya neon violet (kanan atas) dan cyan (kiri). */
+fun screenBg(): Drawable {
+    val d = Resources.getSystem().displayMetrics.density
+    val base = GradientDrawable(
+        GradientDrawable.Orientation.TOP_BOTTOM,
+        intArrayOf(Color.parseColor("#0D0A24"), NX.BG, Color.parseColor("#03040A"))
+    )
+    val glowA = GradientDrawable().apply {
+        gradientType = GradientDrawable.RADIAL_GRADIENT
+        setGradientCenter(0.92f, 0.02f)
+        gradientRadius = 380f * d
+        colors = intArrayOf(withAlpha(NX.ACCENT, 0x46), 0)
+    }
+    val glowB = GradientDrawable().apply {
+        gradientType = GradientDrawable.RADIAL_GRADIENT
+        setGradientCenter(0.0f, 0.42f)
+        gradientRadius = 300f * d
+        colors = intArrayOf(withAlpha(NX.CYAN, 0x1C), 0)
+    }
+    return LayerDrawable(arrayOf(base, glowA, glowB))
+}
+
+/** Kartu kaca hitam dengan garis tepi gradien neon (stroke gradien tidak ada di GradientDrawable, jadi digambar manual). */
+class NeonDrawable(
+    private val top: Int,
+    private val bottom: Int,
+    private val radius: Float,
+    private val c1: Int = withAlpha(NX.ACCENT, 0x99),
+    private val c2: Int = withAlpha(NX.CYAN, 0x66),
+    private val strokePx: Float = 1.5f
+) : Drawable() {
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val rect = RectF()
+
+    override fun onBoundsChange(b: android.graphics.Rect) {
+        fill.shader = LinearGradient(0f, b.top.toFloat(), 0f, b.bottom.toFloat(), top, bottom, Shader.TileMode.CLAMP)
+        line.shader = LinearGradient(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat(), c1, c2, Shader.TileMode.CLAMP)
+        line.strokeWidth = strokePx
+    }
+
+    override fun draw(c: Canvas) {
+        rect.set(bounds)
+        rect.inset(strokePx / 2f, strokePx / 2f)
+        c.drawRoundRect(rect, radius, radius, fill)
+        c.drawRoundRect(rect, radius, radius, line)
+    }
+
+    override fun getOutline(outline: Outline) = outline.setRoundRect(bounds, radius)
+    override fun setAlpha(alpha: Int) { fill.alpha = alpha; line.alpha = alpha }
+    override fun setColorFilter(cf: ColorFilter?) { fill.colorFilter = cf; line.colorFilter = cf }
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity() = PixelFormat.TRANSLUCENT
+}
+
+/** Cahaya neon berwarna di sekeliling view (bayangan berwarna). */
+fun View.glow(color: Int, elevDp: Float = 10f) {
+    elevation = elevDp * resources.displayMetrics.density
+    outlineSpotShadowColor = color
+    outlineAmbientShadowColor = color
+}
 
 const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
 const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -80,7 +150,7 @@ fun Context.tv(text: CharSequence, sp: Float = 14f, color: Int = NX.TEXT, weight
     t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
     t.setTextColor(color)
     t.typeface = when {
-        weight >= 700 -> Typeface.create("sans-serif", Typeface.BOLD)
+        weight >= 700 -> Typeface.create("sans-serif-condensed", Typeface.BOLD)
         weight >= 500 -> Typeface.create("sans-serif-medium", Typeface.NORMAL)
         else -> Typeface.create("sans-serif", Typeface.NORMAL)
     }
@@ -115,24 +185,30 @@ fun Context.hbox(center: Boolean = true): LinearLayout = LinearLayout(this).appl
     if (center) gravity = Gravity.CENTER_VERTICAL
 }
 
+/** Kartu standar: kaca hitam + tepi neon. */
 fun Context.card(radiusDp: Int = 22, color: Int = NX.SURFACE): LinearLayout = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
     val r = dpf(radiusDp.toFloat())
     background = if (color == NX.SURFACE)
-        gradientRounded(NX.SURFACE_HI, NX.SURFACE, r, GradientDrawable.Orientation.TOP_BOTTOM).also { it.setStroke(1, NX.LINE) }
+        NeonDrawable(Color.parseColor("#F0111729"), Color.parseColor("#F00A0D17"), r, strokePx = dpf(1.2f))
     else rounded(color, r, NX.LINE, 1)
+    clipToOutline = false
 }
 
 fun Context.sectionTitle(text: String): TextView =
-    tv(text, 11.5f, NX.TEXT2, 700).also { it.isAllCaps = true; it.letterSpacing = 0.08f }
+    tv(text, 11f, NX.ACCENT, 700).also { it.isAllCaps = true; it.letterSpacing = 0.16f }
 
 fun Context.chip(text: String, selected: Boolean, accent: Int = NX.ACCENT, onClick: () -> Unit): TextView {
-    val c = tv(text, 13f, if (selected) Color.WHITE else NX.TEXT2, 500)
+    val c = tv(text, 12.5f, if (selected) Color.WHITE else NX.TEXT2, if (selected) 700 else 500)
     c.gravity = Gravity.CENTER
-    c.setPadding(dp(14), dp(11), dp(14), dp(11))
-    val r = dpf(12f)
-    val base = if (selected) gradientRounded(accent, accent, r) else rounded(NX.SURFACE2, r, NX.LINE, 1)
+    c.setPadding(dp(12), dp(11), dp(12), dp(11))
+    val r = dpf(14f)
+    val base = if (selected)
+        gradientRounded(accent, withAlpha(accent, 0xB0), r, GradientDrawable.Orientation.TL_BR)
+            .also { it.setStroke(1, withAlpha(Color.WHITE, 0x55)) }
+    else rounded(NX.SURFACE2, r, NX.LINE, 1)
     c.rippleBg(base, r)
+    if (selected) c.glow(accent, 6f)
     c.setOnClickListener { onClick() }
     return c
 }
@@ -161,19 +237,29 @@ fun Context.chipRow(
 }
 
 fun Context.gradientButton(text: String, onClick: () -> Unit): TextView {
-    val b = tv(text, 16f, Color.WHITE, 700)
+    val b = tv(text, 15f, Color.WHITE, 700)
+    b.isAllCaps = true
+    b.letterSpacing = 0.08f
     b.gravity = Gravity.CENTER
     b.setPadding(dp(20), dp(15), dp(20), dp(15))
-    b.rippleBg(gradientRounded(NX.ACCENT, NX.ACCENT_DEEP, dpf(18f), GradientDrawable.Orientation.TL_BR), dpf(18f))
+    val r = dpf(16f)
+    b.rippleBg(
+        gradientRounded(NX.ACCENT_DEEP, NX.BLUE, r, GradientDrawable.Orientation.LEFT_RIGHT)
+            .also { it.setStroke(1, withAlpha(Color.WHITE, 0x44)) }, r
+    )
+    b.glow(NX.ACCENT, 12f)
     b.setOnClickListener { onClick() }
     return b
 }
 
 fun Context.ghostButton(text: String, onClick: () -> Unit): TextView {
-    val b = tv(text, 15f, NX.TEXT, 500)
+    val b = tv(text, 14f, NX.TEXT, 700)
+    b.isAllCaps = true
+    b.letterSpacing = 0.06f
     b.gravity = Gravity.CENTER
     b.setPadding(dp(18), dp(14), dp(18), dp(14))
-    b.rippleBg(rounded(Color.TRANSPARENT, dpf(16f), NX.LINE, dp(1)), dpf(16f))
+    val r = dpf(16f)
+    b.rippleBg(rounded(withAlpha(Color.WHITE, 0x0A), r, withAlpha(NX.ACCENT, 0x88), dp(1)), r)
     b.setOnClickListener { onClick() }
     return b
 }
@@ -212,8 +298,10 @@ fun Context.divider(): View = View(this).apply { setBackgroundColor(NX.LINE) }
 fun Context.linkRow(title: String, sub: String?, iconRes: Int, onClick: () -> Unit): LinearLayout {
     val row = hbox()
     row.setPadding(dp(16), dp(14), dp(12), dp(14))
-    val ic = icon(iconRes, NX.ACCENT, 22)
-    row.add(ic, dp(22), dp(22), 0f, 0, 0, 14, 0)
+    val badge = android.widget.FrameLayout(this)
+    badge.background = rounded(withAlpha(NX.ACCENT, 0x26), dpf(12f), withAlpha(NX.ACCENT, 0x44), 1)
+    badge.addView(icon(iconRes, NX.ACCENT, 20), android.widget.FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+    row.add(badge, dp(38), dp(38), 0f, 0, 0, 14, 0)
     val t = vbox()
     t.add(tv(title, 15f, NX.TEXT, 500))
     if (sub != null) t.add(tv(sub, 12.5f, NX.TEXT2), t = 2)
@@ -229,4 +317,18 @@ fun fmtDuration(ms: Long): String {
     val h = totalMin / 60
     val m = totalMin % 60
     return if (h > 0) "$h j $m m" else "$m m"
+}
+
+/** Tinggi status bar (px). */
+fun Context.statusInset(): Int {
+    val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+    return if (id > 0) resources.getDimensionPixelSize(id) else dp(24)
+}
+
+/** Tinggi area navigasi bawah (px): tombol 3 tombol atau area gestur. */
+fun Context.navInset(): Int {
+    val modeId = resources.getIdentifier("config_navBarInteractionMode", "integer", "android")
+    val mode = if (modeId > 0) resources.getInteger(modeId) else 0
+    val id = resources.getIdentifier(if (mode == 2) "navigation_bar_gesture_height" else "navigation_bar_height", "dimen", "android")
+    return if (id > 0) resources.getDimensionPixelSize(id) else dp(24)
 }

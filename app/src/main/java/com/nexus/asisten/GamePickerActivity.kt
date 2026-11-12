@@ -44,7 +44,7 @@ class GamePickerActivity : AppCompatActivity() {
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
         root.background = screenBg()
-        root.addView(topBar(if (dock) "Aplikasi di dock (maks. 5)" else "Kelola game", { finish() }))
+        root.addView(topBar(if (dock) "Aplikasi overlay (maks. 5)" else "Kelola game", { finish() }))
 
         val search = EditText(this)
         search.hint = "Cari aplikasi"
@@ -59,6 +59,7 @@ class GamePickerActivity : AppCompatActivity() {
         rv.layoutManager = LinearLayoutManager(this)
         adapter = Adapter()
         rv.adapter = adapter
+        Fx.listAnim(rv)
         rv.clipToPadding = false
         rv.setPadding(dp(8), 0, dp(8), dp(16))
         root.add(rv, MATCH, 0, 1f)

@@ -47,6 +47,7 @@ object Prefs {
     var focusMode: Boolean get() = b("focus_mode", false); set(v) = putB("focus_mode", v)
 
     // Update 1.2
+    var floatSize: Int get() = i("float_size", 1); set(v) = putI("float_size", v)
     var autoUpdate: Boolean get() = b("auto_update", true); set(v) = putB("auto_update", v)
     var lastUpdateCheck: Long get() = s.getLong("last_upd", 0L); set(v) = s.edit().putLong("last_upd", v).apply()
     var haptic: Boolean get() = b("haptic", true); set(v) = putB("haptic", v)

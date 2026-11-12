@@ -1,8 +1,9 @@
 <resources>
     <style name="Theme.Nexus" parent="Theme.MaterialComponents.NoActionBar">
-        <item name="colorPrimary">#7B6CFF</item>
+        <item name="colorPrimary">#9D6BFF</item>
         <item name="colorOnPrimary">#FFFFFF</item>
-        <item name="colorSecondary">#3DE0FF</item>
+        <item name="colorSecondary">#21E6FF</item>
+        <item name="android:windowAnimationStyle">@style/Nx.Anim</item>
         <item name="android:windowBackground">@color/nx_bg</item>
         <item name="android:statusBarColor">@color/nx_bg</item>
         <item name="android:navigationBarColor">@color/nx_bg</item>
@@ -12,10 +13,16 @@
     </style>
     <style name="Theme.Nexus.Dialog" parent="Theme.MaterialComponents.Dialog.Alert">
         <item name="colorPrimary">#7B6CFF</item>
-        <item name="colorSurface">#1B2540</item>
+        <item name="colorSurface">#10152A</item>
         <item name="colorOnSurface">#EAF0FF</item>
         <item name="android:textColorPrimary">#EAF0FF</item>
         <item name="android:textColorSecondary">#9AA7C7</item>
+    </style>
+    <style name="Nx.Anim" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/nx_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/nx_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/nx_back_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/nx_back_exit</item>
     </style>
     <style name="Theme.Nexus.Transparent" parent="Theme.MaterialComponents.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>

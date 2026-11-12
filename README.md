@@ -26,6 +26,14 @@ Terbatas ROM: refresh rate (butuh WRITE_SETTINGS, sebagian ROM mengabaikan), sam
 - Pusat izin: jalur cadangan untuk tiap ROM, panduan "setelan terbatas" Android 13+, perintah ADB yang bisa disalin.
 - Ringan: FPS & ping hanya berjalan saat panel dibuka; tombol Boost; kunci Wi-Fi latensi rendah; DNS pribadi (opsional via ADB).
 
+## Update 1.3
+
+- Overlay dirombak: pegangan di bawah-tengah, geser ke atas membuka menu aksi berbentuk busur 180° dan kartu kaca hitam transparan yang bisa digeser kiri-kanan (Performa, Alat, Aplikasi, Saya), semua dengan animasi.
+- Tab Aplikasi: aplikasi overlay dibuka sebagai jendela mengambang (butuh mode freeform di HP; ada panduan di Pengaturan).
+- Seluruh UI aplikasi didesain ulang bergaya gamer premium + animasi masuk, transisi layar, efek tekan.
+- Fitur "akses notifikasi" dihapus: izin itu yang memicu blokir Play Protect dan layar izinnya terkunci (setelan terbatas Android 13+).
+- Build kini memakai varian release (non-debuggable) dengan tanda tangan tetap.
+
 ## Catatan
 - Kode belum dikompilasi di lingkungan pembuatnya; jika ada error build, kirim lognya.
 - Jika target SDK dinaikkan ke 34: tambahkan foregroundServiceType untuk OverlayService (specialUse) dan naikkan AGP ke 8.1+.

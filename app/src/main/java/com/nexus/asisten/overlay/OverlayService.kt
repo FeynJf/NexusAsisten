@@ -37,7 +37,6 @@ import com.nexus.asisten.core.FpsMonitor
 import com.nexus.asisten.core.ForegroundDetector
 import com.nexus.asisten.core.GameConflict
 import com.nexus.asisten.core.GameUtils
-import com.nexus.asisten.core.NotifCenter
 import com.nexus.asisten.core.Perms
 import com.nexus.asisten.core.PingMonitor
 import com.nexus.asisten.core.ScreenCaptureService
@@ -50,6 +49,9 @@ import com.nexus.asisten.ui.NX
 import com.nexus.asisten.ui.circle
 import com.nexus.asisten.ui.dp
 import com.nexus.asisten.ui.dpf
+import com.nexus.asisten.ui.navInset
+import com.nexus.asisten.ui.glow
+import com.nexus.asisten.ui.withAlpha
 import com.nexus.asisten.ui.gradientRounded
 import java.util.concurrent.Executors
 import kotlin.math.abs
@@ -154,7 +156,7 @@ class OverlayService : Service(), PanelHost {
         return NotificationCompat.Builder(this, CH)
             .setSmallIcon(R.drawable.ic_gamepad)
             .setContentTitle("Asisten Game aktif")
-            .setContentText("$name · geser dari tepi layar untuk membuka panel")
+            .setContentText("$name · geser ke atas dari bawah-tengah layar")
             .setContentIntent(open)
             .addAction(0, "Berhenti", stop)
             .setOngoing(true)
@@ -200,7 +202,6 @@ class OverlayService : Service(), PanelHost {
             applyEffective(false)
             toast("Suhu normal, Gamer Pro dipulihkan")
         }
-        notifDot?.visibility = if (Prefs.notifDots && NotifCenter.count > 0) View.VISIBLE else View.GONE
         panel?.update(fps.fps, fps.exact, ping.lastMs, b.tempC, b.pct)
     }
 
@@ -225,60 +226,62 @@ class OverlayService : Service(), PanelHost {
             flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
         ).also { it.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
 
+    /**
+     * Pegangan di bawah-tengah layar: geser ke ATAS (atau ketuk) untuk membuka overlay.
+     * Areanya kecil (kapsul) dan berada tepat di atas bar navigasi supaya tidak mengganggu game.
+     */
     private fun addHandle() {
-        val left = Prefs.dockLeft
         val root = FrameLayout(this)
         val pill = View(this)
-        pill.background = gradientRounded(NX.ACCENT, NX.CYAN, dpf(3f), android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM)
-        root.addView(pill, FrameLayout.LayoutParams(dp(5), dp(60), (if (left) Gravity.START else Gravity.END) or Gravity.CENTER_VERTICAL))
-        val dot = View(this)
-        dot.background = circle(NX.HOT)
-        dot.visibility = View.GONE
-        notifDot = dot
-        root.addView(dot, FrameLayout.LayoutParams(dp(9), dp(9), (if (left) Gravity.START else Gravity.END) or Gravity.TOP).also {
-            it.topMargin = dp(4)
-        })
-        root.alpha = 0.6f
+        pill.background = gradientRounded(NX.ACCENT, NX.CYAN, dpf(3f))
+        pill.glow(NX.ACCENT, 6f)
+        root.addView(pill, FrameLayout.LayoutParams(dp(64), dp(5), Gravity.CENTER))
+        root.alpha = 0.55f
 
-        val params = overlayParams(dp(if (othersPresent) 20 else 28), dp(88), WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-            (if (Prefs.keepAwake) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0))
-        params.gravity = Gravity.TOP or (if (left) Gravity.START else Gravity.END)
-        // Posisi pegangan: tidak pernah di dasar layar (area gestur), diingat setelah digeser.
-        val hPx = resources.displayMetrics.heightPixels
-        val minY = (hPx * 0.08f).toInt()
-        val maxY = (hPx * 0.70f).toInt()
-        params.y = (hPx * Prefs.handleY).toInt().coerceIn(minY, maxY)
+        val params = overlayParams(
+            dp(if (othersPresent) 120 else 150), dp(34),
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                (if (Prefs.keepAwake) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0)
+        )
+        params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        params.y = navInset() + dp(4)
         handleParams = params
 
+        var downY = 0f
+        var opened = false
+        var moved = false
         val slop = ViewConfiguration.get(this).scaledTouchSlop
-        var downX = 0f; var downY = 0f; var startY = 0; var moved = false; var opened = false
         root.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = e.rawX; downY = e.rawY; startY = params.y; moved = false; opened = false
-                    root.alpha = 1f
+                    downY = e.rawY; opened = false; moved = false
+                    root.animate().alpha(1f).scaleX(1.12f).scaleY(1.12f).setDuration(120).start()
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = e.rawX - downX
-                    val dy = e.rawY - downY
-                    val inward = if (left) dx else -dx
-                    if (!opened && inward > dp(16) && abs(dy) < dp(30)) { opened = true; moved = true; openPanel() }
-                    else if (!opened && abs(dy) > slop) {
-                        moved = true
-                        params.y = (startY + dy).toInt().coerceIn(minY, maxY)
-                        try { wm.updateViewLayout(root, params) } catch (_: Exception) {}
-                    }
+                    val up = downY - e.rawY
+                    if (up > slop) moved = true
+                    if (!opened && up > dp(26)) { opened = true; openPanel() }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (!moved && e.actionMasked == MotionEvent.ACTION_UP) openPanel()
-                    else if (moved && !opened) Prefs.handleY = params.y.toFloat() / hPx
-                    root.alpha = 0.6f
+                    if (!opened && !moved && e.actionMasked == MotionEvent.ACTION_UP) openPanel()
+                    root.animate().alpha(0.55f).scaleX(1f).scaleY(1f).setDuration(200).start()
                 }
             }
             true
         }
         handleView = root
-        try { wm.addView(root, params) } catch (_: Exception) { stopSelf() }
+        try {
+            wm.addView(root, params)
+            // Berdenyut dua kali saat muncul supaya pengguna tahu letaknya.
+            root.animate().alpha(1f).setDuration(350).withEndAction {
+                root.animate().alpha(0.55f).setDuration(350).withEndAction {
+                    root.animate().alpha(1f).setDuration(350).withEndAction {
+                        root.animate().alpha(0.55f).setDuration(350).start()
+                    }.start()
+                }.start()
+            }.start()
+        } catch (_: Exception) { stopSelf() }
     }
 
     private fun removeHandle() {
@@ -527,12 +530,25 @@ class OverlayService : Service(), PanelHost {
 
     override fun launchDock(pkg: String) {
         closePanel()
-        try {
-            if (Prefs.floatingWindow) GameUtils.launchFloating(this, pkg) else GameUtils.launch(this, pkg)
-        } catch (_: Exception) {
-            GameUtils.launch(this, pkg)
-        }
+        val name = GameRepo.label(this, pkg)
+        // Tunggu animasi tutup panel selesai supaya jendela baru langsung terlihat.
+        handler.postDelayed({
+            try {
+                if (Prefs.floatingWindow) {
+                    if (GameUtils.launchFloating(this, pkg, Prefs.floatSize)) toast("$name dibuka sebagai jendela mengambang")
+                    else toast("HP belum mendukung jendela mengambang, $name dibuka layar penuh")
+                } else {
+                    GameUtils.launch(this, pkg)
+                }
+            } catch (_: Exception) {
+                try { GameUtils.launch(this, pkg) } catch (_: Exception) { toast("Gagal membuka $name") }
+            }
+        }, 300)
     }
+
+    override fun floatSupported() = GameUtils.freeformSupported(this)
+
+    override fun openFloatHelp() = launchUi(SettingsActivity::class.java)
 
     override fun pinShortcut() {
         val icon = GameRepo.icon(this, pkg) ?: return
@@ -546,7 +562,6 @@ class OverlayService : Service(), PanelHost {
     override fun sessionMs() = session
 
     override fun requestWrite() { toast("Izinkan 'Ubah pengaturan sistem'"); Perms.openWrite(this) }
-    override fun requestNotifAccess() { toast("Aktifkan akses notifikasi untuk Nexus Asisten"); Perms.openNotifListener(this) }
 
     // ---------- Selesai ----------
     override fun onDestroy() {

@@ -75,6 +75,7 @@ class GameSettingsActivity : AppCompatActivity() {
             else -> tabFokus(col)
         }
         body.addView(sv, FrameLayout.LayoutParams(MATCH, MATCH))
+        Fx.stagger(col, 0L, 45L)
     }
 
     private fun save(p: GameProfile) {
@@ -104,7 +105,12 @@ class GameSettingsActivity : AppCompatActivity() {
         modes.forEachIndexed { i, (title, desc, color) ->
             val on = profile.mode == i
             val c = vbox(18, 16)
-            c.background = rounded(if (on) NX.SURFACE2 else NX.SURFACE, dpf(20f), if (on) color else NX.LINE, if (on) dp(2) else 1)
+            c.background = if (on)
+                android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TL_BR, intArrayOf(withAlpha(color, 0x40), withAlpha(color, 0x0A))
+                ).also { it.cornerRadius = dpf(22f); it.setStroke(dp(2), color) }
+            else NeonDrawable(Color.parseColor("#F0111729"), Color.parseColor("#F00A0D17"), dpf(22f), strokePx = dpf(1.2f))
+            if (on) c.glow(color, 10f)
             c.addView(tv(title, 16f, if (on) color else NX.TEXT, 700))
             c.add(tv(desc, 13.5f, NX.TEXT2), t = 4)
             c.setOnClickListener { save(profile.copy(mode = i)); render(); Fx.say(this, title + " diterapkan", Fx.OK) }

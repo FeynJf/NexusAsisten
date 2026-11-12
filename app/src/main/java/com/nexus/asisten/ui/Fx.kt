@@ -10,7 +10,14 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.animation.ValueAnimator
+import android.view.animation.AlphaAnimation
+import android.view.animation.Animation
+import android.view.animation.AnimationSet
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.LayoutAnimationController
+import android.view.animation.TranslateAnimation
+import android.widget.TextView
 import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
 import com.nexus.asisten.data.Prefs
@@ -62,6 +69,37 @@ object Fx {
     fun animateOut(v: View, end: () -> Unit) {
         v.animate().alpha(0f).translationY(-v.context.dpf(16f)).setDuration(180)
             .setInterpolator(DecelerateInterpolator()).withEndAction(end).start()
+    }
+
+    /** Anak-anak [container] muncul berurutan dari bawah sambil memudar masuk. */
+    fun stagger(container: ViewGroup, base: Long = 0L, step: Long = 55L) {
+        val dy = container.context.dpf(26f)
+        for (i in 0 until container.childCount) {
+            val v = container.getChildAt(i)
+            v.alpha = 0f
+            v.translationY = dy
+            v.animate().alpha(1f).translationY(0f).setStartDelay(base + i * step).setDuration(380)
+                .setInterpolator(DecelerateInterpolator(1.8f)).start()
+        }
+    }
+
+    /** Item daftar (RecyclerView/ListView) masuk berurutan saat pertama tampil. */
+    fun listAnim(vg: ViewGroup) {
+        val a = AnimationSet(true)
+        a.addAnimation(AlphaAnimation(0f, 1f))
+        a.addAnimation(TranslateAnimation(Animation.RELATIVE_TO_SELF, 0f, Animation.RELATIVE_TO_SELF, 0f, Animation.RELATIVE_TO_SELF, 0.3f, Animation.RELATIVE_TO_SELF, 0f))
+        a.duration = 380
+        a.interpolator = DecelerateInterpolator()
+        vg.layoutAnimation = LayoutAnimationController(a, 0.07f)
+    }
+
+    /** Angka menghitung naik dari 0 ke [to]. */
+    fun countUp(t: TextView, to: Int, suffix: String = "", duration: Long = 700L) {
+        val a = ValueAnimator.ofInt(0, to)
+        a.duration = duration
+        a.interpolator = DecelerateInterpolator()
+        a.addUpdateListener { t.text = "${it.animatedValue}$suffix" }
+        a.start()
     }
 
     /** Tampilkan notifikasi singkat di bagian atas layar Activity (tidak berpengaruh bila bukan Activity). */
