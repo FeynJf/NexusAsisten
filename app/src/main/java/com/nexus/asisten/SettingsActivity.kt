@@ -1,30 +1,30 @@
 package com.nexus.asisten
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
+import com.nexus.asisten.core.GameConflict
 import com.nexus.asisten.core.Perms
+import com.nexus.asisten.core.Updater
 import com.nexus.asisten.data.Prefs
 import com.nexus.asisten.ui.*
 
-/** Pengaturan lainnya: Pengaturan & Tentang Asisten Game. */
+/** Pengaturan lainnya: Pengaturan, Izin & perbaikan, dan Tentang. */
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var body: FrameLayout
     private lateinit var tabHolder: FrameLayout
     private var tab = 0
+    private var lastOk: Map<String, Boolean> = emptyMap()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Prefs.init(this)
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        root.setBackgroundColor(NX.BG)
+        root.background = screenBg()
         root.addView(topBar("Pengaturan lainnya", { finish() }))
         tabHolder = FrameLayout(this)
         root.addView(tabHolder)
@@ -35,24 +35,36 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Beri tahu bila ada izin yang baru saja berhasil diaktifkan.
+        val now = permItems().associate { it.id to it.ok }
+        permItems().forEach {
+            if (it.ok && lastOk[it.id] == false) Fx.say(this, "${it.name} aktif", Fx.OK)
+        }
+        lastOk = now
         render()
     }
 
     private fun render() {
         tabHolder.removeAllViews()
-        tabHolder.addView(tabBar(listOf("Pengaturan", "Tentang Asisten Game"), tab) { tab = it; render() })
+        tabHolder.addView(tabBar(listOf("Pengaturan", "Izin", "Tentang"), tab) { tab = it; render() })
         body.removeAllViews()
         val sv = ScrollView(this)
         sv.isVerticalScrollBarEnabled = false
         val col = vbox(16, 14)
         sv.addView(col)
-        if (tab == 0) settings(col) else about(col)
+        when (tab) {
+            0 -> settings(col)
+            1 -> permissions(col)
+            else -> about(col)
+        }
         body.addView(sv, FrameLayout.LayoutParams(MATCH, MATCH))
+        sv.alpha = 0f
+        sv.animate().alpha(1f).setDuration(180).start()
     }
 
     private fun group(col: LinearLayout, title: String, build: (LinearLayout) -> Unit) {
-        col.add(sectionTitle(title), t = 16, b = 8)
-        val c = card(20)
+        col.add(sectionTitle(title), t = 18, b = 8)
+        val c = card(22)
         build(c)
         col.addView(c)
     }
@@ -60,6 +72,48 @@ class SettingsActivity : AppCompatActivity() {
     private fun LinearLayout.sep() = add(divider(), MATCH, 1, 0f, 16, 0, 16, 0)
 
     private fun settings(col: LinearLayout) {
+        col.add(sectionTitle("Pembaruan"), t = 4, b = 8)
+        col.addView(updateCard())
+        val auto = card(22)
+        auto.addView(switchRow("Cek pembaruan otomatis", "Memeriksa rilis baru di GitHub saat aplikasi dibuka.", Prefs.autoUpdate) { Prefs.autoUpdate = it })
+        col.add(auto, t = 10)
+
+        group(col, "Performa & jaringan") { c ->
+            c.addView(switchRow("Kunci Wi-Fi latensi rendah", "Menahan Wi-Fi tetap responsif selama bermain agar ping lebih stabil.", Prefs.wifiLock) { Prefs.wifiLock = it })
+            c.sep()
+            val dns = vbox(16, 10)
+            dns.addView(tv("DNS pribadi saat bermain", 15f, NX.TEXT, 500))
+            dns.add(tv("Bisa mempercepat pencarian server game. Dipulihkan setelah game ditutup.", 12.5f, NX.TEXT2), t = 3)
+            dns.add(chipRow(listOf("Bawaan", "Google", "Cloudflare"), Prefs.dnsChoice) { Prefs.dnsChoice = it }, t = 10, b = 4)
+            if (!Perms.secure(this)) {
+                dns.add(tv("Perlu izin sekali lewat ADB agar pilihan ini bisa diterapkan.", 12.5f, NX.WARN), t = 6)
+                dns.add(ghostButton("Lihat caranya") { permItems().firstOrNull { it.id == "secure" }?.let { handlePerm(it) } }, t = 8)
+            }
+            c.addView(dns)
+        }
+
+        group(col, "Kompatibilitas") { c ->
+            c.addView(switchRow(
+                "Mode kompatibel",
+                "Tidak mematikan asisten game lain saat membersihkan RAM, tidak menimpa Jangan Ganggu/refresh rate milik aplikasi lain, dan mengabaikan panelnya.",
+                Prefs.compatMode
+            ) { Prefs.compatMode = it })
+            val others = GameConflict.installed(this)
+            val info = vbox(16, 10)
+            info.addView(tv(
+                if (others.isEmpty()) "Tidak ada asisten game lain terdeteksi."
+                else "Terdeteksi: " + others.joinToString(", "),
+                12.5f, NX.TEXT2
+            ))
+            if (others.isNotEmpty()) info.add(tv("Gunakan hanya satu panel overlay pada satu waktu supaya tidak saling menutupi.", 12f, NX.MUTED), t = 4)
+            c.sep()
+            c.addView(info)
+        }
+
+        group(col, "Tampilan & umpan balik") { c ->
+            c.addView(switchRow("Getar halus saat mengetuk", "Memberi sensasi tekan pada tombol dan kartu.", Prefs.haptic) { Prefs.haptic = it })
+        }
+
         group(col, "Asisten Game di layar Awal") { c ->
             c.addView(switchRow("Buka animasi", "Tampilkan animasi saat Anda meluncurkan game dari Nexus.", Prefs.openAnimation) { Prefs.openAnimation = it })
             c.sep()
@@ -78,52 +132,64 @@ class SettingsActivity : AppCompatActivity() {
         group(col, "Perekaman layar") { c ->
             c.addView(switchRow("Rekam suara mikrofon", "Butuh izin mikrofon. Suara game tidak ikut terekam.", Prefs.recordMic) {
                 Prefs.recordMic = it
-                if (it && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
-                    ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 2)
+                if (it && !Perms.mic(this)) permItems().firstOrNull { p -> p.id == "mic" }?.let { p -> handlePerm(p) }
             })
             c.sep()
             c.addView(switchRow("Kualitas tinggi", "Hingga 1080p dengan bitrate lebih besar.", Prefs.recordHd) { Prefs.recordHd = it })
             c.sep()
             c.addView(switchRow("60 fps", "Lebih halus, file lebih besar.", Prefs.recordFps60) { Prefs.recordFps60 = it })
         }
-        group(col, "Izin") { c ->
-            val rows = listOf(
-                Triple("Tampil di atas aplikasi lain", Perms.overlay(this), { Perms.openOverlay(this) }),
-                Triple("Akses penggunaan", Perms.usage(this), { Perms.openUsage(this) }),
-                Triple("Ubah pengaturan sistem", Perms.writeSettings(this), { Perms.openWrite(this) }),
-                Triple("Jangan Ganggu", Perms.dnd(this), { Perms.openDnd(this) }),
-                Triple("Akses notifikasi", Perms.notifListener(this), { Perms.openNotifListener(this) })
-            )
-            rows.forEachIndexed { i, (name, ok, act) ->
-                if (i > 0) c.sep()
-                val r = hbox()
-                r.setPadding(dp(16), dp(14), dp(16), dp(14))
-                r.add(tv(name, 15f, NX.TEXT, 500), 0, WRAP, 1f)
-                r.addView(tv(if (ok) "Aktif" else "Izinkan", 13f, if (ok) NX.GOOD else NX.ACCENT, 700))
-                r.setOnClickListener { act() }
-                c.addView(r)
+    }
+
+    private fun permissions(col: LinearLayout) {
+        val items = permItems()
+        val okCount = items.count { it.ok }
+        val head = card(22)
+        head.setPadding(dp(18), dp(16), dp(18), dp(16))
+        head.addView(tv("$okCount dari ${items.size} izin aktif", 17f, NX.TEXT, 700))
+        head.add(tv("Ketuk izin yang belum aktif. Izin yang butuh ADB atau \"setelan terbatas\" akan dipandu langkah demi langkah.", 13f, NX.TEXT2), t = 4)
+        val next = items.firstOrNull { !it.ok && it.adb == null }
+        if (next != null) head.add(gradientButton("Perbaiki: ${next.name}") { handlePerm(next) }, t = 14)
+        col.addView(head)
+
+        listOf("Wajib & utama" to items.filter { it.adb == null }, "Lewat ADB (opsional)" to items.filter { it.adb != null }).forEach { (title, list) ->
+            group(col, title) { c ->
+                list.forEachIndexed { i, p ->
+                    if (i > 0) c.sep()
+                    val r = hbox()
+                    r.setPadding(dp(16), dp(14), dp(16), dp(14))
+                    val t = vbox()
+                    t.addView(tv(p.name + if (p.required) " *" else "", 15f, NX.TEXT, 500))
+                    t.add(tv(p.desc, 12.5f, NX.TEXT2), t = 2)
+                    r.add(t, 0, WRAP, 1f, 0, 0, 12, 0)
+                    r.addView(tv(if (p.ok) "Aktif" else if (p.adb != null) "Via ADB" else "Izinkan", 13f, if (p.ok) NX.GOOD else NX.ACCENT, 700))
+                    r.setOnClickListener { handlePerm(p) }
+                    r.pressFx(0.98f)
+                    c.addView(r)
+                }
             }
         }
     }
 
     private fun about(col: LinearLayout) {
-        val c = card(20)
+        val c = card(22)
         c.setPadding(dp(18), dp(18), dp(18), dp(18))
         c.addView(tv("Nexus Asisten", 20f, NX.TEXT, 700))
-        c.add(tv("Versi 2.0.0", 13f, NX.TEXT2), t = 2, b = 14)
+        c.add(tv("Versi ${Updater.currentLabel()}", 13f, NX.TEXT2), t = 2, b = 14)
         c.addView(tv("Asisten Game ringan untuk HP: panel overlay, profil performa per game, perekaman, dan statistik waktu bermain.", 14f, NX.TEXT2))
         col.addView(c)
 
         col.add(sectionTitle("Apa yang nyata dan apa yang terbatas"), t = 18, b = 8)
-        val n = card(20)
+        val n = card(22)
         n.setPadding(dp(18), dp(16), dp(18), dp(16))
         n.addView(tv(
-            "Nyata: suhu & baterai, latensi (ping TCP), pengosongan RAM, cuplikan & rekaman layar, Jangan Ganggu, " +
-                "pencegahan salah sentuh, bantuan bidik, kecerahan, volume, waktu bermain.\n\n" +
-                "FPS: akurat jika izin DUMP diberikan lewat ADB:\nadb shell pm grant com.nexus.asisten android.permission.DUMP\n" +
+            "Nyata: suhu & baterai, latensi (ping TCP), pengosongan RAM yang aman untuk asisten lain, kunci Wi-Fi latensi rendah, " +
+                "cuplikan & rekaman layar, Jangan Ganggu, pencegahan salah sentuh, bantuan bidik, kecerahan, volume, waktu bermain.\n\n" +
+                "FPS: akurat jika izin DUMP diberikan lewat ADB:\nadb shell pm grant $ADB_PKG android.permission.DUMP\n" +
                 "Tanpa itu angka FPS berupa estimasi (diberi tanda ~).\n\n" +
                 "Terbatas: laju refresh dan sampling sentuhan bergantung pada ROM. Android tidak mengizinkan aplikasi biasa " +
-                "mengubah sensor sentuhan atau CPU/GPU tanpa root.",
+                "mengubah sensor sentuhan atau CPU/GPU tanpa root, jadi aplikasi ini tidak bisa menjanjikan FPS naik drastis; " +
+                "yang dilakukan adalah membebaskan RAM, menjaga refresh rate & Wi-Fi, dan menghindari bentrok dengan aplikasi lain.",
             13.5f, NX.TEXT2
         ))
         col.addView(n)

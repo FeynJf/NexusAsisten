@@ -3,10 +3,12 @@ package com.nexus.asisten.overlay
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
+import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -29,6 +31,7 @@ interface PanelHost {
     fun close()
     fun toast(msg: String)
     fun cleanMemory()
+    fun boost()
     fun checkNetwork()
     fun addToAssistant()
     fun setCrosshair(on: Boolean)
@@ -55,6 +58,7 @@ interface PanelHost {
 
 class PanelUi(private val ctx: Context, private val host: PanelHost) {
     val root = FrameLayout(ctx)
+    private val cardView = LinearLayout(ctx)
     private val content = FrameLayout(ctx)
     private val railItems = ArrayList<LinearLayout>()
     private var tab = 0
@@ -64,6 +68,8 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     private var tvTemp: TextView? = null
     private var tvBat: TextView? = null
     private var tvSession: TextView? = null
+
+    private val selfAnnounced = setOf("Cegah salah sentuh", "Mode Fokus")
 
     private class Tile(val icon: Int, val label: String, val state: (() -> Boolean)?, val onClick: () -> Unit)
 
@@ -76,9 +82,11 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         root.setBackgroundColor(NX.SCRIM)
         root.setOnClickListener { host.close() }
 
-        val card = LinearLayout(ctx)
+        val card = cardView
         card.orientation = LinearLayout.HORIZONTAL
-        card.background = rounded(NX.SURFACE, ctx.dpf(28f), NX.LINE, 1)
+        card.background = gradientRounded(
+            Color.parseColor("#1B2348"), Color.parseColor("#0A0F1F"), ctx.dpf(30f), GradientDrawable.Orientation.TL_BR
+        ).also { it.setStroke(1, 0x33FFFFFF) }
         card.setPadding(ctx.dp(8), ctx.dp(8), ctx.dp(8), ctx.dp(8))
         card.isClickable = true
 
@@ -90,13 +98,32 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         lp.setMargins(ctx.dp(10), ctx.dp(10), ctx.dp(10), ctx.dp(10))
         root.addView(card, lp)
         showTab(0)
+
+        // Animasi masuk: kartu meluncur dari sisi dock sambil memudar masuk.
+        val dir = if (Prefs.dockLeft) -1f else 1f
+        root.alpha = 0f
+        card.translationX = ctx.dpf(48f) * dir
+        card.scaleX = 0.96f
+        card.scaleY = 0.96f
+        root.post {
+            root.animate().alpha(1f).setDuration(200).start()
+            card.animate().translationX(0f).scaleX(1f).scaleY(1f).setDuration(300)
+                .setInterpolator(DecelerateInterpolator(1.6f)).start()
+        }
+    }
+
+    /** Animasi keluar, lalu panggil [end] (biasanya melepas jendela). */
+    fun animateOut(end: () -> Unit) {
+        val dir = if (Prefs.dockLeft) -1f else 1f
+        cardView.animate().translationX(ctx.dpf(40f) * dir).alpha(0f).setDuration(180).start()
+        root.animate().alpha(0f).setDuration(200).withEndAction(end).start()
     }
 
     // ---------- Rail ----------
     private fun buildRail(): View {
         val sv = ScrollView(ctx)
         sv.isVerticalScrollBarEnabled = false
-        sv.background = rounded(NX.SURFACE_DEEP, ctx.dpf(22f))
+        sv.background = rounded(0x66050810, ctx.dpf(24f), 0x14FFFFFF, 1)
         val rail = ctx.vbox(4, 12)
         rail.gravity = Gravity.CENTER_HORIZONTAL
         val tabs = listOf("Performa" to R.drawable.ic_speed, "Alat" to R.drawable.ic_grid, "Saya" to R.drawable.ic_person)
@@ -106,6 +133,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
             item.addView(ctx.icon(ic, NX.TEXT2, 24))
             item.add(ctx.tv(label, 11f, NX.TEXT2, 500).also { it.gravity = Gravity.CENTER }, WRAP, WRAP, 0f, 0, 3, 0, 0)
             item.setOnClickListener { showTab(idx) }
+            item.pressFx(0.92f)
             railItems.add(item)
             rail.add(item, MATCH, WRAP, 0f, 0, 0, 0, 4)
         }
@@ -114,10 +142,12 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
             val iv = android.widget.ImageView(ctx)
             iv.setImageDrawable(d)
             iv.setOnClickListener { host.launchDock(pkg) }
+            iv.pressFx(0.88f)
             rail.add(iv, ctx.dp(40), ctx.dp(40), 0f, 0, 0, 0, 10)
         }
         val plus = ctx.icon(R.drawable.ic_add, NX.MUTED, 22)
         plus.setOnClickListener { host.pickDockApps() }
+        plus.pressFx(0.88f)
         rail.add(plus, ctx.dp(40), ctx.dp(34))
         sv.addView(rail)
         return sv
@@ -127,6 +157,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         railItems.forEachIndexed { i, item ->
             val on = i == sel
             val c = if (on) NX.ACCENT else NX.TEXT2
+            item.background = if (on) rounded(0x338E7BFF, ctx.dpf(16f)) else null
             (item.getChildAt(0) as android.widget.ImageView).setColorFilter(c)
             (item.getChildAt(1) as TextView).setTextColor(c)
         }
@@ -141,6 +172,9 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
             when (i) { 0 -> pagePerforma(); 1 -> pageAlat(); else -> pageSaya() },
             FrameLayout.LayoutParams(MATCH, MATCH)
         )
+        content.alpha = 0f
+        content.translationY = ctx.dpf(10f)
+        content.animate().alpha(1f).translationY(0f).setDuration(200).start()
     }
 
     private fun clearRefs() { tvFps = null; tvPing = null; tvTemp = null; tvBat = null; tvSession = null }
@@ -165,7 +199,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
 
     private fun statsRow(): View {
         val row = ctx.hbox()
-        row.background = rounded(NX.SURFACE2, ctx.dpf(18f))
+        row.background = rounded(NX.SURFACE2, ctx.dpf(20f), NX.LINE, 1)
         row.setPadding(ctx.dp(8), ctx.dp(12), ctx.dp(8), ctx.dp(12))
         val a = statBlock("Laju bingkai", NX.CYAN)
         val b = statBlock("Jaringan", NX.TEXT)
@@ -190,16 +224,20 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         val (sv, col) = scrollPage()
         val p = host.profile()
         col.add(statsRow())
+        col.add(ctx.gradientButton("Boost sekarang") { host.boost() }, t = 12)
+        col.add(ctx.tv("Kosongkan RAM, kunci Wi-Fi & refresh rate, lalu uji jaringan.", 11.5f, NX.MUTED), t = 6)
         col.add(ctx.sectionTitle("Mode performa"), t = 14, b = 8)
         val modeNames = listOf("Hemat daya", "Seimbang", "Gamer Pro")
         col.add(ctx.chipRow(modeNames, p.mode, listOf(NX.GOOD, NX.CYAN, NX.PRO)) {
             host.updateProfile(host.profile().copy(mode = it))
+            host.toast("Mode ${modeNames[it]} diterapkan")
         })
         col.add(ctx.tv("Gamer Pro menaikkan konsumsi daya dan suhu.", 12f, NX.MUTED), t = 6)
 
         col.add(ctx.sectionTitle("Laju pengambilan sampel sentuhan"), t = 16, b = 8)
         col.add(ctx.chipRow(listOf("Cerdas", "Sentuhan ultra"), if (p.ultraTouch) 1 else 0) {
             host.updateProfile(host.profile().copy(ultraTouch = it == 1))
+            host.toast(if (it == 1) "Sentuhan ultra dipilih" else "Sentuhan cerdas dipilih")
         })
 
         col.add(ctx.sectionTitle("Kecepatan refresh layar"), t = 16, b = 8)
@@ -207,6 +245,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         val sel = if (p.refreshHz == 0) opts.size - 1 else opts.indexOfFirst { it == p.refreshHz }.coerceAtLeast(0)
         col.add(ctx.chipRow(opts.map { "$it Hz" }, sel) {
             host.updateProfile(host.profile().copy(refreshHz = opts[it]))
+            host.toast("Refresh rate ${opts[it]} Hz diminta")
         })
 
         val link = ctx.linkRow("Performa dalam bermain game saya", "Layar, kontrol, fokus", R.drawable.ic_settings) {
@@ -261,7 +300,9 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
 
     private fun styleTile(v: LinearLayout, active: Boolean) {
         val r = ctx.dpf(16f)
-        val base = if (active) rounded(0x337B6CFF, r, NX.ACCENT, ctx.dp(1)) else rounded(NX.SURFACE2, r, NX.LINE, 1)
+        val base = if (active)
+            gradientRounded(0x558E7BFF, 0x225B47F5, r, GradientDrawable.Orientation.TL_BR).also { it.setStroke(ctx.dp(1), NX.ACCENT) }
+        else rounded(NX.SURFACE2, r, NX.LINE, 1)
         v.rippleBg(base, r)
         (v.getChildAt(0) as android.widget.ImageView).setColorFilter(if (active) NX.ACCENT else NX.TEXT2)
         (v.getChildAt(1) as TextView).setTextColor(if (active) NX.TEXT else NX.TEXT2)
@@ -278,14 +319,18 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         styleTile(v, t.state?.invoke() ?: false)
         v.setOnClickListener {
             t.onClick()
-            v.postDelayed({ styleTile(v, t.state?.invoke() ?: false) }, 450)
+            v.postDelayed({
+                val on = t.state?.invoke() ?: false
+                styleTile(v, on)
+                if (t.state != null && t.label !in selfAnnounced) host.toast(t.label + ": " + if (on) "aktif" else "mati")
+            }, 450)
         }
         return v
     }
 
     private fun brightnessRow(): View {
         val row = ctx.hbox()
-        row.background = rounded(NX.SURFACE2, ctx.dpf(16f))
+        row.background = rounded(NX.SURFACE2, ctx.dpf(18f), NX.LINE, 1)
         row.setPadding(ctx.dp(14), ctx.dp(8), ctx.dp(14), ctx.dp(8))
         row.addView(ctx.icon(R.drawable.ic_brightness, NX.WARN, 22))
         val sb = SeekBar(ctx)

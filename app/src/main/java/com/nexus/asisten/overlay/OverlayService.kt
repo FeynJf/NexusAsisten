@@ -35,6 +35,7 @@ import com.nexus.asisten.core.Booster
 import com.nexus.asisten.core.CaptureActivity
 import com.nexus.asisten.core.FpsMonitor
 import com.nexus.asisten.core.ForegroundDetector
+import com.nexus.asisten.core.GameConflict
 import com.nexus.asisten.core.GameUtils
 import com.nexus.asisten.core.NotifCenter
 import com.nexus.asisten.core.Perms
@@ -44,6 +45,7 @@ import com.nexus.asisten.core.SystemStats
 import com.nexus.asisten.data.GameProfile
 import com.nexus.asisten.data.GameRepo
 import com.nexus.asisten.data.Prefs
+import com.nexus.asisten.ui.Fx
 import com.nexus.asisten.ui.NX
 import com.nexus.asisten.ui.circle
 import com.nexus.asisten.ui.dp
@@ -95,6 +97,8 @@ class OverlayService : Service(), PanelHost {
     private var crosshairView: View? = null
     private var guardL: View? = null
     private var guardR: View? = null
+    private var bannerView: View? = null
+    private val othersPresent by lazy { Prefs.compatMode && GameConflict.installed(this).isNotEmpty() }
 
     private var profile = GameProfile()
     private var hotThrottled = false
@@ -132,8 +136,8 @@ class OverlayService : Service(), PanelHost {
         addGuards()
         addHandle()
         if (Prefs.crosshair) setCrosshair(true)
-        fps.start(p)
-        ping.start()
+        // FPS & ping hanya dijalankan saat panel terbuka supaya game tidak terbebani.
+        Booster.holdWifi(this, Prefs.wifiLock)
         applyEffective(Prefs.quickStart)
         lastTick = SystemClock.elapsedRealtime()
         handler.postDelayed(tick, 1000)
@@ -161,7 +165,7 @@ class OverlayService : Service(), PanelHost {
     private val tick = object : Runnable {
         override fun run() {
             try { onTick() } catch (_: Exception) {}
-            if (started) handler.postDelayed(this, 1000)
+            if (started) handler.postDelayed(this, if (panel != null) 1000L else 2000L)
         }
     }
 
@@ -203,7 +207,15 @@ class OverlayService : Service(), PanelHost {
     private fun applyEffective(clean: Boolean) {
         val p = profile
         val mode = if (hotThrottled) GameProfile.MODE_BALANCED else p.mode
+        // Petunjuk refresh rate lewat jendela overlay: bekerja tanpa izin "Ubah pengaturan sistem" di banyak perangkat.
+        handler.post { hintRefresh(try { Booster.targetRefresh(this, p, mode) } catch (_: Exception) { 0 }) }
         bg.execute { try { Booster.apply(this, pkg, p, mode, clean) } catch (_: Exception) {} }
+    }
+
+    private fun hintRefresh(hz: Int) {
+        val params = handleParams ?: return
+        params.preferredRefreshRate = hz.toFloat()
+        handleView?.let { try { wm.updateViewLayout(it, params) } catch (_: Exception) {} }
     }
 
     // ---------- Jendela: handle ----------
@@ -228,10 +240,14 @@ class OverlayService : Service(), PanelHost {
         })
         root.alpha = 0.6f
 
-        val params = overlayParams(dp(28), dp(88), WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+        val params = overlayParams(dp(if (othersPresent) 20 else 28), dp(88), WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             (if (Prefs.keepAwake) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0))
         params.gravity = Gravity.TOP or (if (left) Gravity.START else Gravity.END)
-        params.y = resources.displayMetrics.heightPixels / 2 - dp(44)
+        // Posisi pegangan: tidak pernah di dasar layar (area gestur), diingat setelah digeser.
+        val hPx = resources.displayMetrics.heightPixels
+        val minY = (hPx * 0.08f).toInt()
+        val maxY = (hPx * 0.70f).toInt()
+        params.y = (hPx * Prefs.handleY).toInt().coerceIn(minY, maxY)
         handleParams = params
 
         val slop = ViewConfiguration.get(this).scaledTouchSlop
@@ -249,13 +265,13 @@ class OverlayService : Service(), PanelHost {
                     if (!opened && inward > dp(16) && abs(dy) < dp(30)) { opened = true; moved = true; openPanel() }
                     else if (!opened && abs(dy) > slop) {
                         moved = true
-                        val maxY = resources.displayMetrics.heightPixels - dp(88)
-                        params.y = (startY + dy).toInt().coerceIn(0, maxY)
+                        params.y = (startY + dy).toInt().coerceIn(minY, maxY)
                         try { wm.updateViewLayout(root, params) } catch (_: Exception) {}
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     if (!moved && e.actionMasked == MotionEvent.ACTION_UP) openPanel()
+                    else if (moved && !opened) Prefs.handleY = params.y.toFloat() / hPx
                     root.alpha = 0.6f
                 }
             }
@@ -271,7 +287,7 @@ class OverlayService : Service(), PanelHost {
     }
 
     override fun relayout() {
-        closePanel()
+        closePanel(false)
         removeHandle()
         addGuards()
         addHandle()
@@ -289,13 +305,21 @@ class OverlayService : Service(), PanelHost {
             wm.addView(ui.root, params)
             panel = ui
             handleView?.visibility = View.INVISIBLE
+            fps.start(pkg)
+            ping.start()
         } catch (_: Exception) {
         }
     }
 
-    private fun closePanel() {
-        panel?.let { try { wm.removeView(it.root) } catch (_: Exception) {} }
+    private fun closePanel(animate: Boolean = true) {
+        val p = panel
         panel = null
+        if (p != null) {
+            fps.stop()
+            ping.stop()
+            if (animate) p.animateOut { try { wm.removeView(p.root) } catch (_: Exception) {} }
+            else try { wm.removeView(p.root) } catch (_: Exception) {}
+        }
         handleView?.visibility = View.VISIBLE
     }
 
@@ -335,7 +359,7 @@ class OverlayService : Service(), PanelHost {
         fun make(gravity: Int): View {
             val v = View(this)
             v.setOnTouchListener { _, _ -> true }
-            val p = overlayParams(dp(22), WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            val p = overlayParams(dp(if (othersPresent) 14 else 22), WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
             p.gravity = gravity or Gravity.TOP
             try { wm.addView(v, p) } catch (_: Exception) {}
             return v
@@ -371,7 +395,47 @@ class OverlayService : Service(), PanelHost {
     }
 
     override fun toast(msg: String) {
-        handler.post { Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show() }
+        handler.post { showBanner(msg) }
+    }
+
+    /** Notifikasi kapsul beranimasi di atas layar game (tidak menghalangi sentuhan). */
+    private fun showBanner(msg: String) {
+        bannerView?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+        val warn = msg.contains("gagal", true) || msg.contains("panas", true) || msg.contains("izin", true)
+        val v = Fx.bannerView(this, msg, if (warn) Fx.WARN else Fx.OK)
+        val params = overlayParams(
+            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        )
+        params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        params.y = dp(36)
+        try {
+            wm.addView(v, params)
+            bannerView = v
+            Fx.animateIn(v)
+        } catch (_: Exception) {
+            return
+        }
+        handler.postDelayed({
+            if (bannerView === v) {
+                Fx.animateOut(v) {
+                    try { wm.removeView(v) } catch (_: Exception) {}
+                    if (bannerView === v) bannerView = null
+                }
+            }
+        }, 2300)
+    }
+
+    override fun boost() {
+        toast("Boost berjalan...")
+        bg.execute {
+            val r = try { Booster.cleanMemory(this, setOf(pkg)) } catch (_: Exception) { Booster.CleanResult(0, 0) }
+            Booster.holdWifi(this, true)
+            handler.post { applyEffective(false) }
+            val (avg, _, loss) = ping.burst()
+            val net = if (avg < 0) "tanpa koneksi" else "ping $avg ms" + if (loss > 0) ", loss $loss%" else ""
+            toast("Boost selesai · ${r.killed} app dihentikan · +${r.freedMb} MB · $net")
+        }
     }
 
     override fun cleanMemory() {
@@ -421,7 +485,7 @@ class OverlayService : Service(), PanelHost {
 
     override fun setDnd(on: Boolean) {
         if (!Perms.dnd(this)) { toast("Beri izin Jangan Ganggu dulu"); Perms.openDnd(this); return }
-        bg.execute { Booster.setDnd(this, on) }
+        bg.execute { Booster.setDnd(this, on, true) }
     }
 
     override fun screenshot() {
@@ -430,7 +494,7 @@ class OverlayService : Service(), PanelHost {
         handler.postDelayed({
             startActivity(Intent(this, CaptureActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .putExtra("action", ScreenCaptureService.ACTION_SHOT))
-        }, 250)
+        }, 400)
     }
 
     override fun toggleRecord() {
@@ -441,7 +505,7 @@ class OverlayService : Service(), PanelHost {
             handler.postDelayed({
                 startActivity(Intent(this, CaptureActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     .putExtra("action", ScreenCaptureService.ACTION_REC))
-            }, 250)
+            }, 400)
         }
     }
 
@@ -493,7 +557,10 @@ class OverlayService : Service(), PanelHost {
         if (saveAcc > 0) Prefs.addPlay(pkg, saveAcc)
         fps.stop()
         ping.stop()
-        closePanel()
+        closePanel(false)
+        bannerView?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+        bannerView = null
+        Booster.holdWifi(this, false)
         removeHandle()
         removeGuards()
         crosshairView?.let { try { wm.removeView(it) } catch (_: Exception) {} }

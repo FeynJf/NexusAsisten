@@ -43,7 +43,7 @@ class GamePickerActivity : AppCompatActivity() {
 
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        root.setBackgroundColor(NX.BG)
+        root.background = screenBg()
         root.addView(topBar(if (dock) "Aplikasi di dock (maks. 5)" else "Kelola game", { finish() }))
 
         val search = EditText(this)
@@ -83,7 +83,7 @@ class GamePickerActivity : AppCompatActivity() {
     private fun toggle(app: GameApp, on: Boolean): Boolean {
         if (on) {
             if (dock && selected.size >= 5) {
-                Toast.makeText(this, "Dock maksimal 5 aplikasi", Toast.LENGTH_SHORT).show()
+                Fx.say(this, "Dock maksimal 5 aplikasi", Fx.WARN)
                 return false
             }
             selected.add(app.pkg)

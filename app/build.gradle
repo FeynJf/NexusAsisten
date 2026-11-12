@@ -3,6 +3,19 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// Nomor build mengikuti nomor run GitHub Actions (dipakai fitur Update di aplikasi).
+def runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toInteger()
+
+// Keystore tetap (disimpan sebagai teks base64) supaya APK dari tiap build punya tanda tangan sama,
+// sehingga aplikasi bisa memperbarui dirinya sendiri tanpa harus uninstall.
+def keystoreB64 = file("nexus-debug.keystore.b64")
+def keystoreOut = file("$projectDir/.signing/nexus-debug.keystore")
+def hasKeystore = keystoreB64.exists()
+if (hasKeystore) {
+    keystoreOut.parentFile.mkdirs()
+    keystoreOut.bytes = keystoreB64.text.replaceAll("\\s", "").decodeBase64()
+}
+
 android {
     namespace 'com.nexus.asisten'
     compileSdk 33
@@ -11,11 +24,27 @@ android {
         applicationId "com.nexus.asisten"
         minSdk 29
         targetSdk 33
-        versionCode 1
-        versionName "2.0.0"
+        versionCode 100 + runNumber
+        versionName "1.2"
+        buildConfigField "int", "BUILD_NUMBER", "${runNumber}"
+        buildConfigField "String", "UPDATE_REPO", "\"FeynJf/NexusAsisten\""
+    }
+
+    signingConfigs {
+        nexus {
+            if (hasKeystore) {
+                storeFile keystoreOut
+                storePassword "nexus123"
+                keyAlias "nexus"
+                keyPassword "nexus123"
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            if (hasKeystore) signingConfig signingConfigs.nexus
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'

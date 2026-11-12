@@ -43,6 +43,9 @@ class FpsMonitor {
         pkg = gamePkg
         if (running) return
         running = true
+        frames = 0
+        lastT = 0L
+        layer = null
         Choreographer.getInstance().postFrameCallback(cb)
         exec = Executors.newSingleThreadScheduledExecutor().also {
             it.scheduleWithFixedDelay({ pollSurfaceFlinger() }, 1, 1, TimeUnit.SECONDS)

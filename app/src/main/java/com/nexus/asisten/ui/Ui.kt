@@ -18,23 +18,30 @@ import androidx.appcompat.widget.SwitchCompat
 
 /** Palet Nexus: indigo gelap + violet sebagai aksen, cyan untuk data langsung. */
 object NX {
-    val BG = Color.parseColor("#0B0F1A")
-    val SURFACE_DEEP = Color.parseColor("#0F1524")
-    val SURFACE = Color.parseColor("#131A2B")
-    val SURFACE2 = Color.parseColor("#1B2540")
-    val LINE = Color.parseColor("#2A3656")
-    val TEXT = Color.parseColor("#EAF0FF")
-    val TEXT2 = Color.parseColor("#9AA7C7")
-    val MUTED = Color.parseColor("#65729A")
-    val ACCENT = Color.parseColor("#7B6CFF")
-    val ACCENT_DEEP = Color.parseColor("#5A48F0")
+    val BG = Color.parseColor("#070A12")
+    val SURFACE_DEEP = Color.parseColor("#0A0F1D")
+    val SURFACE_HI = Color.parseColor("#18223D")
+    val SURFACE = Color.parseColor("#0F1628")
+    val SURFACE2 = Color.parseColor("#172038")
+    val LINE = Color.parseColor("#1FFFFFFF")
+    val TEXT = Color.parseColor("#F1F4FF")
+    val TEXT2 = Color.parseColor("#A3AFCF")
+    val MUTED = Color.parseColor("#6B7899")
+    val ACCENT = Color.parseColor("#8E7BFF")
+    val ACCENT_DEEP = Color.parseColor("#5B47F5")
     val CYAN = Color.parseColor("#3DE0FF")
     val GOOD = Color.parseColor("#3DDC97")
     val WARN = Color.parseColor("#FFB347")
     val HOT = Color.parseColor("#FF5D5D")
     val PRO = Color.parseColor("#FF7A3D")
-    val SCRIM = Color.parseColor("#99050810")
+    val SCRIM = Color.parseColor("#B3050810")
 }
+
+/** Latar layar: gradien indigo sangat gelap, memberi kesan kedalaman. */
+fun screenBg(): GradientDrawable = GradientDrawable(
+    GradientDrawable.Orientation.TOP_BOTTOM,
+    intArrayOf(Color.parseColor("#101638"), NX.BG, Color.parseColor("#060911"))
+)
 
 const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
 const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -64,6 +71,7 @@ fun View.rippleBg(base: Drawable, radiusPx: Float) {
     background = RippleDrawable(
         ColorStateList.valueOf(0x33FFFFFF), base, rounded(Color.WHITE, radiusPx)
     )
+    pressFx()
 }
 
 fun Context.tv(text: CharSequence, sp: Float = 14f, color: Int = NX.TEXT, weight: Int = 400): TextView {
@@ -107,13 +115,16 @@ fun Context.hbox(center: Boolean = true): LinearLayout = LinearLayout(this).appl
     if (center) gravity = Gravity.CENTER_VERTICAL
 }
 
-fun Context.card(radiusDp: Int = 20, color: Int = NX.SURFACE): LinearLayout = LinearLayout(this).apply {
+fun Context.card(radiusDp: Int = 22, color: Int = NX.SURFACE): LinearLayout = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
-    background = rounded(color, dpf(radiusDp.toFloat()), NX.LINE, 1)
+    val r = dpf(radiusDp.toFloat())
+    background = if (color == NX.SURFACE)
+        gradientRounded(NX.SURFACE_HI, NX.SURFACE, r, GradientDrawable.Orientation.TOP_BOTTOM).also { it.setStroke(1, NX.LINE) }
+    else rounded(color, r, NX.LINE, 1)
 }
 
 fun Context.sectionTitle(text: String): TextView =
-    tv(text, 13f, NX.TEXT2, 500)
+    tv(text, 11.5f, NX.TEXT2, 700).also { it.isAllCaps = true; it.letterSpacing = 0.08f }
 
 fun Context.chip(text: String, selected: Boolean, accent: Int = NX.ACCENT, onClick: () -> Unit): TextView {
     val c = tv(text, 13f, if (selected) Color.WHITE else NX.TEXT2, 500)
@@ -139,6 +150,7 @@ fun Context.chipRow(
                 if (i != sel) {
                     build(i)
                     onSelect(i)
+                    Fx.say(this, labels[i].replace("\n", " · ") + " dipilih", Fx.OK)
                 }
             }
             row.add(ch, 0, WRAP, 1f, 0, 0, if (i == labels.size - 1) 0 else 8, 0)
@@ -152,7 +164,7 @@ fun Context.gradientButton(text: String, onClick: () -> Unit): TextView {
     val b = tv(text, 16f, Color.WHITE, 700)
     b.gravity = Gravity.CENTER
     b.setPadding(dp(20), dp(15), dp(20), dp(15))
-    b.rippleBg(gradientRounded(NX.ACCENT, NX.ACCENT_DEEP, dpf(16f)), dpf(16f))
+    b.rippleBg(gradientRounded(NX.ACCENT, NX.ACCENT_DEEP, dpf(18f), GradientDrawable.Orientation.TL_BR), dpf(18f))
     b.setOnClickListener { onClick() }
     return b
 }
@@ -185,9 +197,13 @@ fun Context.switchRow(
     texts.add(tv(title, 15f, NX.TEXT, 500))
     if (desc != null) texts.add(tv(desc, 12.5f, NX.TEXT2), t = 3)
     row.add(texts, 0, WRAP, 1f, 0, 0, 12, 0)
-    val sw = styledSwitch(checked, onChange)
+    val sw = styledSwitch(checked) { c ->
+        onChange(c)
+        Fx.say(this, "$title: " + if (c) "aktif" else "mati", if (c) Fx.OK else Fx.INFO)
+    }
     row.addView(sw)
     row.setOnClickListener { sw.toggle() }
+    row.pressFx(0.98f)
     return row
 }
 
@@ -204,6 +220,7 @@ fun Context.linkRow(title: String, sub: String?, iconRes: Int, onClick: () -> Un
     row.add(t, 0, WRAP, 1f)
     row.add(icon(com.nexus.asisten.R.drawable.ic_arrow_right, NX.MUTED, 22), dp(22), dp(22))
     row.setOnClickListener { onClick() }
+    row.pressFx(0.98f)
     return row
 }
 

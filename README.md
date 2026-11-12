@@ -17,6 +17,15 @@ Nyata: suhu/baterai (BatteryManager), ping (TCP), RAM, foreground game (UsageEve
 FPS akurat: `adb shell pm grant com.nexus.asisten android.permission.DUMP` (tanpa itu = estimasi bertanda ~).
 Terbatas ROM: refresh rate (butuh WRITE_SETTINGS, sebagian ROM mengabaikan), sampling sentuhan/sensitivitas (disimpan di profil saja).
 
+## Update 1.2
+
+- **Pembaruan lewat aplikasi**: cek rilis terbaru di GitHub Releases, unduh & pasang dari dalam aplikasi (Pengaturan > Pengaturan > Pembaruan, juga muncul otomatis di beranda). Rilis dibuat oleh GitHub Actions; lihat `build.yml` terbaru. APK ditandatangani dengan keystore tetap (`app/nexus-debug.keystore.b64`) supaya bisa menimpa versi sebelumnya.
+- Desain UI & overlay baru (kaca gelap, gradien, animasi masuk/keluar), efek tekan + getar halus, notifikasi kapsul setiap aksi.
+- Pegangan overlay tidak pernah di dasar layar, posisinya diingat.
+- Mode kompatibel: tidak mematikan asisten game lain, tidak menimpa DND/refresh rate milik aplikasi lain.
+- Pusat izin: jalur cadangan untuk tiap ROM, panduan "setelan terbatas" Android 13+, perintah ADB yang bisa disalin.
+- Ringan: FPS & ping hanya berjalan saat panel dibuka; tombol Boost; kunci Wi-Fi latensi rendah; DNS pribadi (opsional via ADB).
+
 ## Catatan
 - Kode belum dikompilasi di lingkungan pembuatnya; jika ada error build, kirim lognya.
 - Jika target SDK dinaikkan ke 34: tambahkan foregroundServiceType untuk OverlayService (specialUse) dan naikkan AGP ke 8.1+.

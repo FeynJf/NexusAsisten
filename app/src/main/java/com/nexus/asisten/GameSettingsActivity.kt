@@ -39,7 +39,7 @@ class GameSettingsActivity : AppCompatActivity() {
 
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        root.setBackgroundColor(NX.BG)
+        root.background = screenBg()
         val head = hbox()
         head.setPadding(dp(8), dp(10), dp(16), dp(10))
         val back = icon(R.drawable.ic_back, NX.TEXT, 24)
@@ -107,7 +107,8 @@ class GameSettingsActivity : AppCompatActivity() {
             c.background = rounded(if (on) NX.SURFACE2 else NX.SURFACE, dpf(20f), if (on) color else NX.LINE, if (on) dp(2) else 1)
             c.addView(tv(title, 16f, if (on) color else NX.TEXT, 700))
             c.add(tv(desc, 13.5f, NX.TEXT2), t = 4)
-            c.setOnClickListener { save(profile.copy(mode = i)); render() }
+            c.setOnClickListener { save(profile.copy(mode = i)); render(); Fx.say(this, title + " diterapkan", Fx.OK) }
+            c.pressFx(0.97f)
             col.add(c, t = 10)
         }
         col.add(tv("Jika suhu melewati ${Prefs.tempWarn}°C, Gamer Pro turun ke Seimbang sementara (bisa dimatikan di Pengaturan).", 12f, NX.MUTED), t = 12)

@@ -38,7 +38,7 @@ class AlbumActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         val root = LinearLayout(this)
         root.orientation = LinearLayout.VERTICAL
-        root.setBackgroundColor(NX.BG)
+        root.background = screenBg()
         root.addView(topBar("Album game", { finish() }))
         tabHolder = FrameLayout(this)
         root.addView(tabHolder)
@@ -91,7 +91,7 @@ class AlbumActivity : AppCompatActivity() {
     private fun open(u: Uri) {
         val i = Intent(Intent.ACTION_VIEW).setDataAndType(u, if (videoTab) "video/*" else "image/*")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        try { startActivity(i) } catch (_: Exception) { Toast.makeText(this, "Tidak ada aplikasi pembuka", Toast.LENGTH_SHORT).show() }
+        try { startActivity(i) } catch (_: Exception) { Fx.say(this, "Tidak ada aplikasi pembuka", Fx.WARN) }
     }
 
     private fun menu(u: Uri) {
@@ -103,7 +103,7 @@ class AlbumActivity : AppCompatActivity() {
                     startActivity(Intent.createChooser(s, "Bagikan"))
                 } else {
                     try { contentResolver.delete(u, null, null) } catch (_: Exception) {
-                        Toast.makeText(this, "Tidak bisa menghapus file ini", Toast.LENGTH_SHORT).show()
+                        Fx.say(this, "Tidak bisa menghapus file ini", Fx.WARN)
                     }
                     load()
                 }

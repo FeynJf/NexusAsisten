@@ -23,6 +23,7 @@ import com.nexus.asisten.core.Booster
 import com.nexus.asisten.core.GameUtils
 import com.nexus.asisten.core.Perms
 import com.nexus.asisten.core.SystemStats
+import com.nexus.asisten.core.Updater
 import com.nexus.asisten.data.GameApp
 import com.nexus.asisten.data.GameProfile
 import com.nexus.asisten.data.GameRepo
@@ -49,12 +50,13 @@ class MainActivity : AppCompatActivity() {
     private var tvBat: TextView? = null
     private var tvTemp: TextView? = null
     private var tvRam: TextView? = null
+    private var updateShown = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Prefs.init(this)
         scroll = ScrollView(this)
-        scroll.setBackgroundColor(NX.BG)
+        scroll.background = screenBg()
         scroll.isVerticalScrollBarEnabled = false
         root = vbox(20, 12)
         scroll.addView(root)
@@ -84,6 +86,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        Updater.autoCheck(this)
         build()
         handler.post(ticker)
     }
@@ -95,7 +98,8 @@ class MainActivity : AppCompatActivity() {
 
     private val ticker = object : Runnable {
         override fun run() {
-            updateLive()
+            // Kartu pembaruan muncul otomatis begitu pemeriksaan selesai.
+            if (Updater.wantsCard() != updateShown) build() else updateLive()
             handler.postDelayed(this, 2000)
         }
     }
@@ -131,9 +135,12 @@ class MainActivity : AppCompatActivity() {
             selected = games.firstOrNull { it.pkg == Prefs.lastGame }?.pkg ?: games.firstOrNull()?.pkg
         }
         buildTopBar()
+        updateShown = Updater.wantsCard()
+        if (updateShown) root.add(updateCard(), b = 14)
         if (games.isEmpty()) buildEmpty() else {
-            buildHero()
+            // Slide pilihan game di atas, kartu game terpilih di bawahnya.
             buildCarousel()
+            buildHero()
         }
         buildDeviceCard()
         buildPlaytime()
@@ -179,9 +186,9 @@ class MainActivity : AppCompatActivity() {
         val prof = Prefs.profile(g.pkg)
         val hero = vbox(20, 20)
         hero.background = gradientRounded(
-            android.graphics.Color.parseColor("#3B2FC9"), android.graphics.Color.parseColor("#141B3D"), dpf(28f),
+            android.graphics.Color.parseColor("#5B47F5"), android.graphics.Color.parseColor("#0E1533"), dpf(30f),
             android.graphics.drawable.GradientDrawable.Orientation.TL_BR
-        )
+        ).also { it.setStroke(1, 0x33FFFFFF) }
         val top = hbox()
         top.add(appIcon(g.icon, 72, 20), dp(72), dp(72), 0f, 0, 0, 16, 0)
         val info = vbox()
@@ -227,7 +234,8 @@ class MainActivity : AppCompatActivity() {
             cell.setPadding(dp(4), dp(4), dp(4), dp(4))
             cell.background = if (on) rounded(0, dpf(22f), NX.ACCENT, dp(2)) else null
             cell.addView(appIcon(g.icon, 56, 16), FrameLayout.LayoutParams(dp(56), dp(56)))
-            cell.setOnClickListener { selected = g.pkg; Prefs.lastGame = g.pkg; build() }
+            cell.setOnClickListener { selected = g.pkg; Prefs.lastGame = g.pkg; build(); Fx.say(this, "${g.name} dipilih") }
+            cell.pressFx(0.92f)
             cell.setOnLongClickListener { gameMenu(g); true }
             row.add(cell, WRAP, WRAP, 0f, 0, 0, 8, 0)
         }
@@ -322,14 +330,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun buildPermissions() {
-        data class P(val name: String, val ok: Boolean, val act: () -> Unit)
-        val list = listOf(
-            P("Tampil di atas aplikasi lain (wajib)", Perms.overlay(this)) { Perms.openOverlay(this) },
-            P("Akses penggunaan", Perms.usage(this)) { Perms.openUsage(this) },
-            P("Ubah pengaturan sistem", Perms.writeSettings(this)) { Perms.openWrite(this) },
-            P("Jangan Ganggu", Perms.dnd(this)) { Perms.openDnd(this) },
-            P("Akses notifikasi", Perms.notifListener(this)) { Perms.openNotifListener(this) }
-        ).filter { !it.ok }
+        val keys = setOf("overlay", "usage", "write", "dnd", "notif_listener", "post_notif")
+        val list = permItems().filter { !it.ok && it.id in keys }
         if (list.isEmpty()) return
         val c = card(24)
         c.setPadding(dp(18), dp(14), dp(18), dp(8))
@@ -340,11 +342,13 @@ class MainActivity : AppCompatActivity() {
             val dot = View(this)
             dot.background = circle(NX.WARN)
             r.add(dot, dp(8), dp(8), 0f, 0, 0, 12, 0)
-            r.add(tv(p.name, 14f, NX.TEXT2), 0, WRAP, 1f)
+            r.add(tv(p.name + if (p.required) " (wajib)" else "", 14f, NX.TEXT2), 0, WRAP, 1f)
             r.addView(tv("Izinkan", 13f, NX.ACCENT, 700))
-            r.setOnClickListener { p.act() }
+            r.setOnClickListener { handlePerm(p) }
+            r.pressFx(0.98f)
             c.addView(r)
         }
+        c.add(ghostButton("Pusat izin & perbaikan") { startActivity(Intent(this, SettingsActivity::class.java)) }, t = 8, b = 8)
         root.add(c)
     }
 
@@ -356,7 +360,7 @@ class MainActivity : AppCompatActivity() {
     private fun autoDetect() {
         val found = GameRepo.launchableApps(this).filter { it.isGame }
         if (found.isEmpty()) {
-            Toast.makeText(this, "Tidak ada game terdeteksi, pilih manual", Toast.LENGTH_SHORT).show()
+            Fx.say(this, "Tidak ada game terdeteksi, pilih manual")
             openPicker()
             return
         }
@@ -374,7 +378,7 @@ class MainActivity : AppCompatActivity() {
             .setItems(arrayOf("Pintasan layar Awal", "Hapus dari daftar")) { _, which ->
                 if (which == 0) {
                     val ok = GameUtils.pinShortcut(this, g.pkg, g.name, g.icon)
-                    if (!ok) Toast.makeText(this, "Peluncur tidak mendukung pintasan", Toast.LENGTH_SHORT).show()
+                    if (!ok) Fx.say(this, "Peluncur tidak mendukung pintasan")
                 } else { GameRepo.remove(g.pkg); build() }
             }.show()
     }
@@ -399,11 +403,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun cleanRam() {
-        Toast.makeText(this, "Mengosongkan RAM...", Toast.LENGTH_SHORT).show()
+        Fx.say(this, "Mengosongkan RAM...")
         bg.execute {
             val r = Booster.cleanMemory(this, setOfNotNull(selected))
             handler.post {
-                Toast.makeText(this, "${r.killed} aplikasi dihentikan, +${r.freedMb} MB", Toast.LENGTH_LONG).show()
+                Fx.say(this, "${r.killed} aplikasi dihentikan, +${r.freedMb} MB")
                 updateLive()
             }
         }
@@ -423,7 +427,7 @@ class MainActivity : AppCompatActivity() {
         GameRepo.bump(pkg)
         val begin = {
             OverlayService.start(this, pkg)
-            if (!GameUtils.launch(this, pkg)) Toast.makeText(this, "Game tidak bisa dibuka", Toast.LENGTH_SHORT).show()
+            if (!GameUtils.launch(this, pkg)) Fx.say(this, "Game tidak bisa dibuka")
             else if (Prefs.openAnimation) overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
             Unit
         }

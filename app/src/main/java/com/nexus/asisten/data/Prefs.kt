@@ -46,6 +46,21 @@ object Prefs {
     var keepAwake: Boolean get() = b("keep_awake", true); set(v) = putB("keep_awake", v)
     var focusMode: Boolean get() = b("focus_mode", false); set(v) = putB("focus_mode", v)
 
+    // Update 1.2
+    var autoUpdate: Boolean get() = b("auto_update", true); set(v) = putB("auto_update", v)
+    var lastUpdateCheck: Long get() = s.getLong("last_upd", 0L); set(v) = s.edit().putLong("last_upd", v).apply()
+    var haptic: Boolean get() = b("haptic", true); set(v) = putB("haptic", v)
+    var compatMode: Boolean get() = b("compat_mode", true); set(v) = putB("compat_mode", v)
+    var wifiLock: Boolean get() = b("wifi_lock", true); set(v) = putB("wifi_lock", v)
+    var dnsChoice: Int get() = i("dns_choice", 0); set(v) = putI("dns_choice", v)
+    var handleY: Float get() = s.getFloat("handle_y", 0.28f); set(v) = s.edit().putFloat("handle_y", v).apply()
+    var lastHz: Float get() = s.getFloat("last_hz", -1f); set(v) = s.edit().putFloat("last_hz", v).apply()
+    var dndOurs: Boolean get() = b("dnd_ours", false); set(v) = putB("dnd_ours", v)
+    var origDnsMode: String? get() = s.getString("orig_dns_mode", null); set(v) = s.edit().putString("orig_dns_mode", v).apply()
+    var origDnsHost: String? get() = s.getString("orig_dns_host", null); set(v) = s.edit().putString("orig_dns_host", v).apply()
+    fun asked(id: String): Boolean = s.getBoolean("asked_$id", false)
+    fun setAsked(id: String) = s.edit().putBoolean("asked_$id", true).apply()
+
     // Daftar game & dock
     private fun list(key: String): MutableList<String> {
         val out = mutableListOf<String>()
