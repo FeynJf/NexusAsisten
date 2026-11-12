@@ -68,18 +68,18 @@ jobs:
         with:
           gradle-version: 8.2
 
-      - name: Build debug APK
+      - name: Build APK rilis (non-debuggable, tanda tangan tetap)
         run: |
           if [ -f ./gradlew ]; then
             chmod +x ./gradlew
-            ./gradlew assembleDebug --stacktrace
+            ./gradlew assembleRelease --stacktrace
           else
-            gradle assembleDebug --stacktrace
+            gradle assembleRelease --stacktrace
           fi
 
       # Dipakai fitur Update di aplikasi: tiap build menerbitkan rilis "build-<nomor run>" berisi APK.
       - name: Siapkan APK rilis
-        run: cp app/build/outputs/apk/debug/app-debug.apk NexusAsisten.apk
+        run: cp app/build/outputs/apk/release/app-release.apk NexusAsisten.apk
 
       - name: Terbitkan rilis
         uses: softprops/action-gh-release@v2
@@ -93,6 +93,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: GameBracket-APK
-          path: app/build/outputs/apk/debug/*.apk
+          name: NexusAsisten-APK
+          path: NexusAsisten.apk
           if-no-files-found: error
