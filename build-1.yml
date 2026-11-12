@@ -1,0 +1,98 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+# contents: write dibutuhkan supaya workflow bisa meng-commit hasil patch
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Taruh file .patch di root repo (atau folder patches/).
+      # Otomatis diterapkan, di-commit, lalu file .patch-nya dihapus.
+      # Catatan: patch tidak bisa mengubah isi .github/workflows/ (dibatasi GitHub).
+      - name: Terapkan file .patch (kalau ada)
+        shell: bash
+        run: |
+          shopt -s nullglob
+          patches=( *.patch patches/*.patch )
+          if [ ${#patches[@]} -eq 0 ]; then
+            echo "Tidak ada file .patch, lanjut build."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          applied=()
+          for p in "${patches[@]}"; do
+            [ -e "$p" ] || continue
+            echo "== $p"
+            if git apply --whitespace=nowarn "$p"; then
+              echo "Berhasil diterapkan: $p"
+              git rm -q -f -- "$p"
+              applied+=("$p")
+            else
+              echo "::warning title=Patch gagal::$p tidak bisa diterapkan (file target sudah berubah atau patch tidak cocok). Patch dilewati dan dibiarkan di repo."
+            fi
+          done
+          if [ ${#applied[@]} -eq 0 ]; then
+            echo "Tidak ada patch yang berhasil diterapkan."
+            exit 0
+          fi
+          git add -A
+          git commit -q -m "Terapkan patch: ${applied[*]}"
+          git push origin "HEAD:${GITHUB_REF_NAME}" || {
+            git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}"
+          }
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.2
+
+      - name: Build debug APK
+        run: |
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleDebug --stacktrace
+          else
+            gradle assembleDebug --stacktrace
+          fi
+
+      # Dipakai fitur Update di aplikasi: tiap build menerbitkan rilis "build-<nomor run>" berisi APK.
+      - name: Siapkan APK rilis
+        run: cp app/build/outputs/apk/debug/app-debug.apk NexusAsisten.apk
+
+      - name: Terbitkan rilis
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Nexus Asisten build ${{ github.run_number }}
+          body: ${{ github.event.head_commit.message }}
+          files: NexusAsisten.apk
+          make_latest: true
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameBracket-APK
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
