@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
@@ -56,7 +57,7 @@ import com.nexus.asisten.ui.gradientRounded
 import java.util.concurrent.Executors
 import kotlin.math.abs
 
-class OverlayService : Service(), PanelHost {
+class OverlayService : Service(), PanelHost, RecordHost {
 
     companion object {
         const val EXTRA_PKG = "pkg"
@@ -64,6 +65,7 @@ class OverlayService : Service(), PanelHost {
         const val ACTION_STOP = "nx.STOP"
         const val ACTION_REAPPLY = "nx.REAPPLY"
         const val ACTION_RELOAD_DOCK = "nx.DOCK"
+        const val ACTION_OPEN = "nx.OPEN"
         @Volatile var running = false
         @Volatile var currentPkg: String? = null
         private const val CH = "nexus_overlay"
@@ -100,6 +102,8 @@ class OverlayService : Service(), PanelHost {
     private var guardL: View? = null
     private var guardR: View? = null
     private var bannerView: View? = null
+    private var recBar: RecordBar? = null
+    private var hideUntil = 0L
     private val othersPresent by lazy { Prefs.compatMode && GameConflict.installed(this).isNotEmpty() }
 
     private var profile = GameProfile()
@@ -122,6 +126,7 @@ class OverlayService : Service(), PanelHost {
             ACTION_STOP -> { stopSelf(); return START_NOT_STICKY }
             ACTION_REAPPLY -> { profile = Prefs.profile(pkg); applyEffective(false); panel?.showTab(0); return START_STICKY }
             ACTION_RELOAD_DOCK -> { return START_STICKY }
+            ACTION_OPEN -> { if (started) openPanel(); return START_STICKY }
         }
         val p = intent?.getStringExtra(EXTRA_PKG)
         if (p == null) { stopSelf(); return START_NOT_STICKY }
@@ -153,11 +158,15 @@ class OverlayService : Service(), PanelHost {
         val stop = PendingIntent.getService(
             this, 2, Intent(this, OverlayService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE
         )
+        val openPanel = PendingIntent.getService(
+            this, 3, Intent(this, OverlayService::class.java).setAction(ACTION_OPEN), PendingIntent.FLAG_IMMUTABLE
+        )
         return NotificationCompat.Builder(this, CH)
             .setSmallIcon(R.drawable.ic_gamepad)
             .setContentTitle("Asisten Game aktif")
-            .setContentText("$name · geser ke atas dari bawah-tengah layar")
+            .setContentText("$name · geser ke atas dari bawah-tengah layar, atau ketuk Buka panel")
             .setContentIntent(open)
+            .addAction(0, "Buka panel", openPanel)
             .addAction(0, "Berhenti", stop)
             .setOngoing(true)
             .build()
@@ -182,7 +191,7 @@ class OverlayService : Service(), PanelHost {
             if (inGame) awaySince = 0L else if (awaySince == 0L) awaySince = now
         }
         if (!inGame && awaySince > 0 && now - awaySince > 90_000) { stopSelf(); return }
-        if (panel == null) handleView?.visibility = if (inGame || now - awaySince < 3000) View.VISIBLE else View.GONE
+        if (panel == null && now >= hideUntil) handleView?.visibility = if (inGame || now - awaySince < 3000) View.VISIBLE else View.GONE
         if (inGame) {
             session += dt
             saveAcc += dt
@@ -226,26 +235,33 @@ class OverlayService : Service(), PanelHost {
             flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
         ).also { it.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
 
+    private fun isGestureNav(): Boolean {
+        val id = resources.getIdentifier("config_navBarInteractionMode", "integer", "android")
+        return id > 0 && resources.getInteger(id) == 2
+    }
+
     /**
      * Pegangan di bawah-tengah layar: geser ke ATAS (atau ketuk) untuk membuka overlay.
-     * Areanya kecil (kapsul) dan berada tepat di atas bar navigasi supaya tidak mengganggu game.
+     * Area sentuhnya sengaja dibuat lebih tinggi & ditaruh DI ATAS zona gestur sistem (swipe-home),
+     * kalau tidak, sistem yang menangkap gesekan dan overlay tidak pernah muncul. Pill kecilnya
+     * hanya penanda visual; seluruh area transparan di sekitarnya ikut menangkap gesekan.
      */
     private fun addHandle() {
         val root = FrameLayout(this)
         val pill = View(this)
         pill.background = gradientRounded(NX.ACCENT, NX.CYAN, dpf(3f))
         pill.glow(NX.ACCENT, 6f)
-        root.addView(pill, FrameLayout.LayoutParams(dp(64), dp(5), Gravity.CENTER))
+        root.addView(pill, FrameLayout.LayoutParams(dp(64), dp(5), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also { it.bottomMargin = dp(10) })
         root.alpha = 0.55f
 
         val params = overlayParams(
-            dp(if (othersPresent) 120 else 150), dp(34),
+            dp(if (othersPresent) 160 else 220), dp(56),
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 (if (Prefs.keepAwake) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0)
         )
         params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        params.y = navInset() + dp(4)
+        params.y = if (isGestureNav()) maxOf(navInset(), dp(24)) + dp(12) else navInset() + dp(4)
         handleParams = params
 
         var downY = 0f
@@ -261,7 +277,7 @@ class OverlayService : Service(), PanelHost {
                 MotionEvent.ACTION_MOVE -> {
                     val up = downY - e.rawY
                     if (up > slop) moved = true
-                    if (!opened && up > dp(26)) { opened = true; openPanel() }
+                    if (!opened && up > dp(18)) { opened = true; openPanel() }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     if (!opened && !moved && e.actionMasked == MotionEvent.ACTION_UP) openPanel()
@@ -273,6 +289,10 @@ class OverlayService : Service(), PanelHost {
         handleView = root
         try {
             wm.addView(root, params)
+            // Minta sistem tidak merebut gesekan di area ini (Android 10+).
+            root.post {
+                try { root.systemGestureExclusionRects = listOf(Rect(0, 0, root.width, root.height)) } catch (_: Exception) {}
+            }
             // Berdenyut dua kali saat muncul supaya pengguna tahu letaknya.
             root.animate().alpha(1f).setDuration(350).withEndAction {
                 root.animate().alpha(0.55f).setDuration(350).withEndAction {
@@ -299,7 +319,10 @@ class OverlayService : Service(), PanelHost {
     // ---------- Panel ----------
     private fun openPanel() {
         if (panel != null) return
-        val ui = PanelUi(this, this)
+        val ui = try { PanelUi(this, this) } catch (e: Exception) {
+            Toast.makeText(applicationContext, "Gagal membuka panel Asisten", Toast.LENGTH_SHORT).show()
+            return
+        }
         val params = overlayParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
@@ -311,6 +334,7 @@ class OverlayService : Service(), PanelHost {
             fps.start(pkg)
             ping.start()
         } catch (_: Exception) {
+            Toast.makeText(applicationContext, "Panel gagal tampil. Cek izin 'Tampil di atas aplikasi lain'", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -491,26 +515,50 @@ class OverlayService : Service(), PanelHost {
         bg.execute { Booster.setDnd(this, on, true) }
     }
 
+    /** Sembunyikan pegangan sebentar supaya tidak ikut terpotret. */
+    private fun hideHandleBriefly(ms: Long) {
+        hideUntil = SystemClock.elapsedRealtime() + ms
+        handleView?.visibility = View.INVISIBLE
+        handler.postDelayed({ if (panel == null) handleView?.visibility = View.VISIBLE }, ms)
+    }
+
+    /** Buka Activity izin di task terpisah (tidak menarik Nexus ke depan, lalu kembali ke game). */
+    private fun launchCapture(then: String) {
+        try {
+            startActivity(
+                Intent(this, CaptureActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                    .putExtra(CaptureActivity.EXTRA_THEN, then)
+            )
+        } catch (_: Exception) {
+            toast("Gagal membuka izin tangkap layar")
+        }
+    }
+
     override fun screenshot() {
         closePanel()
-        // Beri waktu panel hilang sebelum menangkap layar.
+        hideHandleBriefly(1800)
+        // Tunggu panel selesai menutup sebelum menangkap layar game.
         handler.postDelayed({
-            startActivity(Intent(this, CaptureActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                .putExtra("action", ScreenCaptureService.ACTION_SHOT))
-        }, 400)
+            if (ScreenCaptureService.ready) ScreenCaptureService.send(this, ScreenCaptureService.ACTION_SHOT)
+            else launchCapture(ScreenCaptureService.ACTION_SHOT)
+        }, 450)
     }
 
     override fun toggleRecord() {
-        if (ScreenCaptureService.recording) {
-            startService(Intent(this, ScreenCaptureService::class.java).setAction(ScreenCaptureService.ACTION_STOP))
-        } else {
-            closePanel()
-            handler.postDelayed({
-                startActivity(Intent(this, CaptureActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    .putExtra("action", ScreenCaptureService.ACTION_REC))
-            }, 400)
-        }
+        closePanel()
+        val bar = recBar ?: RecordBar(this, wm, this).also { recBar = it }
+        bar.show()
     }
+
+    override fun beginRecording() {
+        if (ScreenCaptureService.ready) ScreenCaptureService.send(this, ScreenCaptureService.ACTION_REC)
+        else launchCapture(ScreenCaptureService.ACTION_REC)
+    }
+
+    override fun askMic() = launchCapture(CaptureActivity.THEN_MIC)
+
+    override fun onBarClosed() { recBar = null }
 
     override fun isRecording() = ScreenCaptureService.recording
 
@@ -573,6 +621,9 @@ class OverlayService : Service(), PanelHost {
         fps.stop()
         ping.stop()
         closePanel(false)
+        recBar?.hide()
+        recBar = null
+        if (ScreenCaptureService.ready || ScreenCaptureService.recording) ScreenCaptureService.send(this, ScreenCaptureService.ACTION_END)
         bannerView?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         bannerView = null
         Booster.holdWifi(this, false)

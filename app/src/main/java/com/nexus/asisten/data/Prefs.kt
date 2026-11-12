@@ -35,6 +35,8 @@ object Prefs {
     var recordMic: Boolean get() = b("rec_mic", false); set(v) = putB("rec_mic", v)
     var recordFps60: Boolean get() = b("rec_60", false); set(v) = putB("rec_60", v)
     var recordHd: Boolean get() = b("rec_hd", true); set(v) = putB("rec_hd", v)
+    /** Resolusi rekaman: 0 = 2K, 1 = 1K, 2 = 750p, 3 = 540p. */
+    var recordRes: Int get() = i("rec_res", 1); set(v) = putI("rec_res", v)
 
     // Asisten Game (overlay)
     var dockLeft: Boolean get() = b("dock_left", true); set(v) = putB("dock_left", v)
@@ -91,6 +93,7 @@ object Prefs {
     var origPeak: Float get() = s.getFloat("orig_peak", -2f); set(v) = s.edit().putFloat("orig_peak", v).apply()
     var origMin: Float get() = s.getFloat("orig_min", -2f); set(v) = s.edit().putFloat("orig_min", v).apply()
     var origDnd: Int get() = i("orig_dnd", -1); set(v) = putI("orig_dnd", v)
+    var origLongPress: Int get() = i("orig_longpress", -1); set(v) = putI("orig_longpress", v)
 
     // Waktu bermain internal (per hari, 30 hari terakhir)
     private val dayFmt = SimpleDateFormat("yyyyMMdd", Locale.US)

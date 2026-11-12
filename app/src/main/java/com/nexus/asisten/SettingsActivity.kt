@@ -8,6 +8,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.nexus.asisten.core.GameConflict
 import com.nexus.asisten.core.GameUtils
 import com.nexus.asisten.core.Perms
+import com.nexus.asisten.core.ScreenCaptureService
 import com.nexus.asisten.core.Updater
 import com.nexus.asisten.data.Prefs
 import com.nexus.asisten.ui.*
@@ -159,7 +160,11 @@ class SettingsActivity : AppCompatActivity() {
                 if (it && !Perms.mic(this)) permItems().firstOrNull { p -> p.id == "mic" }?.let { p -> handlePerm(p) }
             })
             c.sep()
-            c.addView(switchRow("Kualitas tinggi", "Hingga 1080p dengan bitrate lebih besar.", Prefs.recordHd) { Prefs.recordHd = it })
+            val res = vbox(16, 10)
+            res.addView(tv("Resolusi video", 15f, NX.TEXT, 500))
+            res.add(tv("2K = 1440p, 1K = 1080p. Resolusi juga bisa diubah dari bar rekam di overlay.", 12.5f, NX.TEXT2), t = 3)
+            res.add(chipRow(ScreenCaptureService.RES_LABELS, Prefs.recordRes.coerceIn(0, 3)) { Prefs.recordRes = it }, t = 10, b = 4)
+            c.addView(res)
             c.sep()
             c.addView(switchRow("60 fps", "Lebih halus, file lebih besar.", Prefs.recordFps60) { Prefs.recordFps60 = it })
         }

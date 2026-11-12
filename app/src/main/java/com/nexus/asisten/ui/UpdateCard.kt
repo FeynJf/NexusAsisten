@@ -48,7 +48,9 @@ fun Activity.updateCard(): LinearLayout {
                 Updater.check(this, true)
             }
             Stage.CHECKING -> show("Memeriksa pembaruan...", "Versi terpasang ${Updater.currentLabel()}", null, true, true, 0) {}
-            Stage.UPTODATE -> show("Sudah versi terbaru", "Versi terpasang ${Updater.currentLabel()}", "Periksa lagi", false, false, 0) {
+            Stage.UPTODATE -> show(
+                if (Updater.note != null) "Belum ada rilis untuk diunduh" else "Sudah versi terbaru",
+                Updater.note ?: "Versi terpasang ${Updater.currentLabel()}", "Periksa lagi", false, false, 0) {
                 Fx.say(this, "Memeriksa pembaruan...")
                 Updater.check(this, true)
             }

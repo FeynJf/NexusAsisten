@@ -12,6 +12,7 @@ import com.nexus.asisten.BuildConfig
 import com.nexus.asisten.MainActivity
 import com.nexus.asisten.R
 import com.nexus.asisten.data.Prefs
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -37,12 +38,16 @@ object Updater {
         private set
     @Volatile var error: String? = null
         private set
+    /** Keterangan tambahan untuk status "sudah terbaru" (mis. belum ada rilis APK di GitHub). */
+    @Volatile var note: String? = null
+        private set
     @Volatile private var apk: File? = null
 
     const val ACTION_STATUS = "nx.UPDATE_STATUS"
     private const val CH = "nexus_update"
     private val exec = Executors.newSingleThreadExecutor()
-    private val api = "https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases/latest"
+    private val api = "https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases?per_page=10"
+    private const val NO_RELEASE = "Belum ada rilis APK di GitHub. Pastikan workflow build.yml terbaru berada di .github/workflows/ (bukan di root repo), lalu jalankan build lagi."
 
     fun currentLabel() = "${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})"
 
@@ -63,6 +68,7 @@ object Updater {
         if (stage == Stage.CHECKING || stage == Stage.DOWNLOADING || stage == Stage.INSTALLING) return
         stage = Stage.CHECKING
         error = null
+        note = null
         exec.execute {
             try {
                 val c = URL(api).openConnection() as HttpURLConnection
@@ -74,18 +80,27 @@ object Updater {
                 Prefs.lastUpdateCheck = System.currentTimeMillis()
                 if (code == 404) {
                     info = null
+                    note = NO_RELEASE
                     stage = Stage.UPTODATE
-                } else {
-                    if (code != 200) throw IOException("GitHub membalas kode $code")
-                    val j = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+                    return@execute
+                }
+                if (code == 403 || code == 429) throw IOException("batas permintaan GitHub tercapai, coba lagi nanti")
+                if (code != 200) throw IOException("GitHub membalas kode $code")
+                val arr = JSONArray(c.inputStream.bufferedReader().use { it.readText() })
+                // Ambil rilis dengan nomor build tertinggi yang punya APK (bukan sekadar "latest" milik GitHub).
+                var best: Info? = null
+                var seen = 0
+                for (n in 0 until arr.length()) {
+                    val j = arr.getJSONObject(n)
+                    if (j.optBoolean("draft", false)) continue
                     val tag = j.optString("tag_name")
                     val build = Regex("(\\d+)\\s*$").find(tag)?.groupValues?.get(1)?.toIntOrNull() ?: 0
                     var url = ""
                     var size = 0L
                     val assets = j.optJSONArray("assets")
                     if (assets != null) {
-                        for (n in 0 until assets.length()) {
-                            val a = assets.getJSONObject(n)
+                        for (k in 0 until assets.length()) {
+                            val a = assets.getJSONObject(k)
                             if (a.optString("name").endsWith(".apk")) {
                                 url = a.optString("browser_download_url")
                                 size = a.optLong("size")
@@ -93,13 +108,18 @@ object Updater {
                             }
                         }
                     }
-                    if (url.isNotEmpty() && build > BuildConfig.BUILD_NUMBER) {
-                        info = Info(tag, build, j.optString("name", tag), j.optString("body", ""), url, size)
-                        stage = Stage.AVAILABLE
-                    } else {
-                        info = null
-                        stage = Stage.UPTODATE
-                    }
+                    if (url.isEmpty()) continue
+                    seen++
+                    if (best == null || build > best.build) best = Info(tag, build, j.optString("name", tag), j.optString("body", ""), url, size)
+                }
+                val b = best
+                if (b != null && b.build > BuildConfig.BUILD_NUMBER) {
+                    info = b
+                    stage = Stage.AVAILABLE
+                } else {
+                    info = null
+                    if (seen == 0) note = NO_RELEASE
+                    stage = Stage.UPTODATE
                 }
             } catch (e: Exception) {
                 if (manual) {

@@ -159,6 +159,27 @@ object Booster {
         Prefs.origDnsHost = null
     }
 
+    /**
+     * Sentuhan ultra: mempercepat jeda "tekan & tahan" sistem (long_press_timeout) agar sentuhan lebih responsif.
+     * Butuh WRITE_SECURE_SETTINGS (sekali lewat ADB). Mengembalikan false bila izin belum ada.
+     */
+    fun applyTouch(ctx: Context, ultra: Boolean): Boolean {
+        if (!Perms.secure(ctx)) return false
+        return try {
+            val cr = ctx.contentResolver
+            if (ultra) {
+                if (Prefs.origLongPress == -1) Prefs.origLongPress = Settings.Secure.getInt(cr, "long_press_timeout", 400)
+                Settings.Secure.putInt(cr, "long_press_timeout", 250)
+            } else if (Prefs.origLongPress != -1) {
+                Settings.Secure.putInt(cr, "long_press_timeout", Prefs.origLongPress)
+                Prefs.origLongPress = -1
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /** Terapkan profil game dengan mode efektif (bisa lebih rendah saat perangkat panas). */
     fun apply(ctx: Context, pkg: String, p: GameProfile, effectiveMode: Int, clean: Boolean) {
         if (clean && effectiveMode == GameProfile.MODE_PRO) cleanMemory(ctx, setOf(pkg))
@@ -166,6 +187,7 @@ object Booster {
         val wantDnd = p.blockCalls || p.blockNotif || Prefs.focusMode
         if (wantDnd) setDnd(ctx, true)
         if (Prefs.dnsChoice > 0) applyDns(ctx, Prefs.dnsChoice)
+        applyTouch(ctx, p.ultraTouch)
     }
 
     /** Pulihkan pengaturan sistem yang kita ubah. */
@@ -187,5 +209,6 @@ object Booster {
         Prefs.lastHz = -1f
         if (Prefs.dndOurs) setDnd(ctx, false)
         restoreDns(ctx)
+        applyTouch(ctx, false)
     }
 }

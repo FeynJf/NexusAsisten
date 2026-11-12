@@ -412,7 +412,12 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         col.add(ctx.sectionTitle("Sampel sentuhan"), t = 16, b = 8)
         col.add(ctx.chipRow(listOf("Cerdas", "Sentuhan ultra"), if (p.ultraTouch) 1 else 0) {
             host.updateProfile(host.profile().copy(ultraTouch = it == 1))
-            host.toast(if (it == 1) "Sentuhan ultra dipilih" else "Sentuhan cerdas dipilih")
+            host.toast(
+                if (it == 1) {
+                    if (com.nexus.asisten.core.Perms.secure(ctx)) "Sentuhan ultra aktif (respons tekan-tahan dipercepat)"
+                    else "Sentuhan ultra disimpan. Efek penuh butuh izin ADB WRITE_SECURE_SETTINGS (lihat Pengaturan > Izin)"
+                } else "Sentuhan cerdas dipilih"
+            )
         })
         col.add(ctx.sectionTitle("Refresh layar"), t = 16, b = 8)
         val opts = Booster.supportedRefresh(ctx)
@@ -525,7 +530,17 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
 
     private fun toggleRotation() {
         if (!Settings.System.canWrite(ctx)) { host.requestWrite(); return }
-        Settings.System.putInt(ctx.contentResolver, Settings.System.ACCELEROMETER_ROTATION, if (rotationLocked()) 1 else 0)
+        val cr = ctx.contentResolver
+        if (rotationLocked()) {
+            Settings.System.putInt(cr, Settings.System.ACCELEROMETER_ROTATION, 1)
+        } else {
+            // Kunci pada orientasi yang sedang dipakai (tanpa ini game landscape bisa terbanting ke potret).
+            val rot = try {
+                (ctx.getSystemService(Context.DISPLAY_SERVICE) as android.hardware.display.DisplayManager).getDisplay(0).rotation
+            } catch (_: Exception) { 0 }
+            Settings.System.putInt(cr, Settings.System.USER_ROTATION, rot)
+            Settings.System.putInt(cr, Settings.System.ACCELEROMETER_ROTATION, 0)
+        }
     }
 
     // ---------- Sub-halaman (di dalam halaman Alat) ----------
