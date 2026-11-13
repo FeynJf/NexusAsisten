@@ -1,6 +1,7 @@
 package com.nexus.asisten.overlay
 
-import android.animation.ValueAnimator
+import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.DashPathEffect
@@ -14,13 +15,16 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.SweepGradient
 import android.graphics.drawable.Drawable
-import android.view.animation.LinearInterpolator
+import com.nexus.asisten.ui.Motion
 import com.nexus.asisten.ui.NX
+import kotlin.math.PI
+import kotlin.math.sin
 
 /**
- * Latar panel overlay: SATU bentuk kubah 180° (busur setengah elips di atas, dinding lurus di bawah).
- * Kaca indigo yang tembus pandang (game tetap terlihat), kilau ungu di atas, bingkai neon berpendar,
- * satu cahaya yang berputar pelan mengitari tepi, dan jalur putus-putus tempat tombol aksi berjajar.
+ * Latar panel overlay "Premium Gamer": SATU bentuk kubah 180° (busur setengah elips di atas, dinding lurus di bawah).
+ * Lapisan dari bawah ke atas: kaca indigo gelap, aurora violet/cyan/magenta yang melayang pelan, pola garis diagonal
+ * halus, kilau kaca, bingkai neon tiga warna yang mengalir + berdenyut, komet cahaya yang mengitari tepi,
+ * sudut siku bergaya HUD, berlian kecil di puncak, dan jalur putus-putus tempat tombol aksi berjajar.
  */
 class DomeDrawable(
     private val a: Float,       // setengah lebar
@@ -33,16 +37,33 @@ class DomeDrawable(
 
     private val path = Path()
     private val ring = Path()
+    private val brackets = Path()
+    private val diamond = Path()
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val auroraA = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val auroraB = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val auroraC = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val pattern = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sheen = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND }
     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val base = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
     private val runner = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private val gem = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val gemGlow = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    private val edgeShader: SweepGradient
     private val runnerShader: SweepGradient
-    private val runnerMatrix = Matrix()
-    private var phase = 0f
-    private var anim: ValueAnimator? = null
+    private val rotM = Matrix()
+    private val moveM = Matrix()
+
+    private var timeMs = 0L
+    private var loop: Motion.Loop? = null
+
+    /** 0..1: "menyala" saat panel dibuka (kilau bingkai naik dari redup ke terang). */
+    var intro = 1f
+        set(v) { field = v.coerceIn(0f, 1f); invalidateSelf() }
 
     init {
         val w = 2 * a
@@ -59,63 +80,118 @@ class DomeDrawable(
 
         ring.arcTo(RectF(inset, inset, w - inset, 2 * rho - inset), 180f, 180f, false)
 
-        // Kaca tembus pandang: ~70% di atas, ~78% di bawah (bukan hitam pekat).
+        // Sudut siku HUD di kiri/kanan bawah.
+        val bm = px * 14f
+        val bl = px * 22f
+        val by = h - px * 14f
+        brackets.moveTo(bm, by - bl); brackets.lineTo(bm, by); brackets.lineTo(bm + bl, by)
+        brackets.moveTo(w - bm, by - bl); brackets.lineTo(w - bm, by); brackets.lineTo(w - bm - bl, by)
+
+        // Berlian kecil di puncak kubah.
+        val dy = m + px * 0.5f
+        val r = px * 5f
+        diamond.moveTo(a, dy - r); diamond.lineTo(a + r * 0.8f, dy); diamond.lineTo(a, dy + r); diamond.lineTo(a - r * 0.8f, dy); diamond.close()
+
+        // Kaca: gelap di bawah supaya teks mudah dibaca, sedikit tembus pandang di atas supaya game tetap terlihat.
         fill.shader = LinearGradient(
-            0f, 0f, 0f, h,
-            intArrayOf(0xB52C2370.toInt(), 0xB9161D4A.toInt(), 0xC70A1030.toInt()), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP
+            0f, 0f, w * 0.35f, h,
+            intArrayOf(0xD8261C6A.toInt(), 0xE0141446.toInt(), 0xEC080B24.toInt()), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP
         )
-        sheen.shader = RadialGradient(a, rho * 0.45f, a * 0.95f, intArrayOf(0x4A8A6CFF, 0x00000000), null, Shader.TileMode.CLAMP)
-        edge.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(NX.ACCENT, NX.CYAN, NX.ACCENT), null, Shader.TileMode.CLAMP)
-        track.color = 0x34FFFFFF
+        auroraA.shader = RadialGradient(w * 0.82f, rho * 0.55f, a * 1.05f, intArrayOf(0x66A66BFF, 0x00000000), null, Shader.TileMode.CLAMP)
+        auroraB.shader = RadialGradient(w * 0.12f, h * 0.55f, a * 1.0f, intArrayOf(0x4421E6FF, 0x00000000), null, Shader.TileMode.CLAMP)
+        auroraC.shader = RadialGradient(w * 0.55f, h * 0.98f, a * 0.9f, intArrayOf(0x3CFF4FD8, 0x00000000), null, Shader.TileMode.CLAMP)
+
+        // Pola garis diagonal halus + titik (ubin kecil berulang, murah digambar).
+        val ts = (px * 18f).toInt().coerceAtLeast(8)
+        val bmp = Bitmap.createBitmap(ts, ts, Bitmap.Config.ARGB_8888)
+        val bc = Canvas(bmp)
+        val lp = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x10FFFFFF; strokeWidth = px * 0.8f; style = Paint.Style.STROKE }
+        bc.drawLine(-ts * 0.2f, ts * 1.2f, ts * 1.2f, -ts * 0.2f, lp)
+        val dp0 = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1E21E6FF }
+        bc.drawCircle(ts / 2f, ts / 2f, px * 0.9f, dp0)
+        pattern.shader = BitmapShader(bmp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+
+        sheen.shader = LinearGradient(0f, 0f, 0f, rho * 0.9f, intArrayOf(0x2EFFFFFF, 0x00FFFFFF), null, Shader.TileMode.CLAMP)
+
+        // Bingkai: tiga warna mengalir (diputar pelan).
+        edgeShader = SweepGradient(
+            a, rho,
+            intArrayOf(NX.CYAN, NX.ACCENT, NX.MAGENTA, NX.ACCENT, NX.CYAN, NX.BLUE, NX.CYAN),
+            floatArrayOf(0f, 0.18f, 0.36f, 0.54f, 0.72f, 0.88f, 1f)
+        )
+        edge.shader = edgeShader
+
+        track.color = 0x30FFFFFF
         track.strokeWidth = px
         track.pathEffect = DashPathEffect(floatArrayOf(px * 3f, px * 7f), 0f)
-        base.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(0x00000000, NX.CYAN, 0x00000000), null, Shader.TileMode.CLAMP)
+        base.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(0x00000000, NX.CYAN, NX.ACCENT, 0x00000000), floatArrayOf(0f, 0.35f, 0.65f, 1f), Shader.TileMode.CLAMP)
         base.strokeWidth = px * 2f
         runnerShader = SweepGradient(
             a, rho,
-            intArrayOf(0x00000000, 0x00000000, NX.CYAN, 0xFFFFFFFF.toInt(), NX.ACCENT, 0x00000000, 0x00000000),
-            floatArrayOf(0f, 0.58f, 0.66f, 0.70f, 0.74f, 0.84f, 1f)
+            intArrayOf(0x00000000, 0x00000000, NX.CYAN, 0xFFFFFFFF.toInt(), NX.MAGENTA, 0x00000000, 0x00000000),
+            floatArrayOf(0f, 0.56f, 0.65f, 0.70f, 0.75f, 0.86f, 1f)
         )
         runner.shader = runnerShader
-        runner.strokeWidth = px * 2.4f
+        runner.strokeWidth = px * 2.6f
+        tick.strokeWidth = px * 2f
+        tick.color = NX.CYAN
+        gem.color = 0xFFFFFFFF.toInt()
+        gemGlow.shader = RadialGradient(a, px * 4.5f, px * 16f, intArrayOf(0xA021E6FF.toInt(), 0x0021E6FF), null, Shader.TileMode.CLAMP)
     }
 
-    /** Mulai cahaya berputar di tepi (panggil saat panel tampil). */
+    /** Mulai gerak latar (panggil saat panel tampil). Memakai Choreographer, bukan ValueAnimator. */
     fun start() {
-        if (anim != null) return
-        anim = ValueAnimator.ofFloat(0f, 360f).apply {
-            duration = 4200
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = LinearInterpolator()
-            addUpdateListener { phase = it.animatedValue as Float; invalidateSelf() }
-            start()
-        }
+        if (loop != null) return
+        loop = Motion.loop(33) { ms -> timeMs = ms; invalidateSelf() }
     }
 
     fun stop() {
-        anim?.cancel()
-        anim = null
+        loop?.cancel()
+        loop = null
     }
 
     override fun draw(c: Canvas) {
         val w = 2 * a
         val h = rho + s
+        val t = timeMs / 1000f
+        val breathe = 0.78f + 0.22f * sin(t * 2f * PI.toFloat() / 3.2f)
+        val glowK = (0.25f + 0.75f * intro) * breathe
+
         c.drawPath(path, fill)
         c.save()
         c.clipPath(path)
+        // aurora yang melayang pelan
+        c.save(); c.translate(sin(t * 0.45f) * px * 14f, sin(t * 0.33f) * px * 8f); c.drawRect(-w * 0.2f, -h * 0.2f, w * 1.2f, h * 1.2f, auroraA); c.restore()
+        c.save(); c.translate(sin(t * 0.38f + 2f) * px * 16f, sin(t * 0.5f + 1f) * px * 10f); c.drawRect(-w * 0.2f, -h * 0.2f, w * 1.2f, h * 1.2f, auroraB); c.restore()
+        c.save(); c.translate(sin(t * 0.3f + 4f) * px * 12f, 0f); c.drawRect(-w * 0.2f, 0f, w * 1.2f, h * 1.3f, auroraC); c.restore()
+        c.drawRect(0f, 0f, w, h, pattern)
         c.drawRect(0f, 0f, w, h, sheen)
         c.restore()
-        // pendar bingkai neon (tiga lapis)
-        edge.strokeWidth = px * 8f; edge.alpha = 22; c.drawPath(path, edge)
-        edge.strokeWidth = px * 4f; edge.alpha = 55; c.drawPath(path, edge)
-        edge.strokeWidth = px * 1.5f; edge.alpha = 255; c.drawPath(path, edge)
-        // cahaya yang berputar
-        if (anim != null) {
-            runnerMatrix.setRotate(phase, a, rho)
-            runnerShader.setLocalMatrix(runnerMatrix)
+
+        // pendar bingkai neon (empat lapis) + warna yang mengalir
+        rotM.setRotate(t * 28f, a, rho)
+        edgeShader.setLocalMatrix(rotM)
+        edge.strokeWidth = px * 12f; edge.alpha = (16 * glowK).toInt(); c.drawPath(path, edge)
+        edge.strokeWidth = px * 7f; edge.alpha = (34 * glowK).toInt(); c.drawPath(path, edge)
+        edge.strokeWidth = px * 3.6f; edge.alpha = (70 * glowK).toInt(); c.drawPath(path, edge)
+        edge.strokeWidth = px * 1.6f; edge.alpha = (150 + 105 * intro).toInt().coerceAtMost(255); c.drawPath(path, edge)
+
+        // komet cahaya yang mengitari tepi
+        if (loop != null) {
+            moveM.setRotate(t * 85f, a, rho)
+            runnerShader.setLocalMatrix(moveM)
+            runner.alpha = (255 * intro).toInt()
             c.drawPath(path, runner)
         }
         c.drawPath(ring, track)
+
+        // sudut HUD, berlian puncak, garis dasar
+        tick.alpha = (200 * intro).toInt()
+        c.drawPath(brackets, tick)
+        gemGlow.alpha = (255 * glowK).toInt().coerceIn(0, 255)
+        c.drawCircle(a, px * 4.5f, px * 16f, gemGlow)
+        gem.alpha = (255 * intro).toInt()
+        c.drawPath(diamond, gem)
         val y = h - px * 5f
         c.drawLine(w * 0.28f, y, w * 0.72f, y, base)
     }

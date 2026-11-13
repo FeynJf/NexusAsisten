@@ -21,8 +21,8 @@ class GlowDrawable(
     private val px: Float,
     edge1: Int = NX.ACCENT,
     edge2: Int = NX.CYAN,
-    private val top: Int = 0xE61B2450.toInt(),
-    private val bottom: Int = 0xE60A1126.toInt()
+    private val top: Int = 0xEB1D1B58.toInt(),
+    private val bottom: Int = 0xEB080B22.toInt()
 ) : Drawable() {
 
     private val rect = RectF()
@@ -43,7 +43,7 @@ class GlowDrawable(
         val m = px * 3f
         rect.set(b.left + m, b.top + m, b.right - m, b.bottom - m)
         fill.shader = LinearGradient(0f, rect.top, 0f, rect.bottom, top, bottom, Shader.TileMode.CLAMP)
-        sheen.shader = LinearGradient(0f, rect.top, 0f, rect.top + rect.height() * 0.55f, 0x26FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
+        sheen.shader = LinearGradient(0f, rect.top, 0f, rect.top + rect.height() * 0.55f, 0x30FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
         edge.shader = LinearGradient(rect.left, 0f, rect.right, 0f, edgeFrom, edgeTo, Shader.TileMode.CLAMP)
     }
 

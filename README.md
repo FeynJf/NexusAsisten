@@ -12,6 +12,13 @@ Android Studio (Giraffe/Hedgehog+), buka folder ini, Sync, Run. minSdk 29, targe
 - Alat: kecerahan, cek jaringan, RAM, cuplikan & rekam layar, bantuan bidik, cegah salah sentuh, DND, Mode Fokus, layar menyala, volume, kunci orientasi.
 - Album game, pintasan layar Awal, auto-turun mode saat panas.
 
+## Update 1.8
+
+- Overlay & aplikasi didesain ulang bergaya Premium Gamer (kaca gelap, neon violet/cyan/magenta, aurora bergerak, bingkai mengalir, ikon baru, ikon aplikasi baru).
+- Animasi memakai mesin sendiri (Choreographer), jadi tetap halus walau "Skala animasi" di Opsi Pengembang dimatikan atau Hemat Baterai aktif.
+- Aplikasi dari tab Aplikasi dibuka tanpa izin tambahan: bila HP belum mendukung jendela mengambang, muncul gelembung Nexus untuk kembali ke game.
+- Blur latar panel (Android 12+), bisa dimatikan di Pengaturan.
+
 ## Data nyata vs terbatas
 Nyata: suhu/baterai (BatteryManager), ping (TCP), RAM, foreground game (UsageEvents), waktu bermain, rekam/cuplik (MediaProjection).
 FPS akurat: `adb shell pm grant com.nexus.asisten android.permission.DUMP` (tanpa itu = estimasi bertanda ~).

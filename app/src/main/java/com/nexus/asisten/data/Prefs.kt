@@ -28,6 +28,7 @@ object Prefs {
 
     // Pengaturan umum
     var openAnimation: Boolean get() = b("open_anim", true); set(v) = putB("open_anim", v)
+    var panelBlur: Boolean get() = b("panel_blur", true); set(v) = putB("panel_blur", v)
     var albumEnabled: Boolean get() = b("album", true); set(v) = putB("album", v)
     var autoAdjust: Boolean get() = b("auto_adjust", true); set(v) = putB("auto_adjust", v)
     var tempWarn: Int get() = i("temp_warn", 43); set(v) = putI("temp_warn", v)

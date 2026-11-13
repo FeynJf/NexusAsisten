@@ -13,6 +13,7 @@ import android.graphics.Rect
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -47,6 +48,7 @@ import com.nexus.asisten.data.GameProfile
 import com.nexus.asisten.data.GameRepo
 import com.nexus.asisten.data.Prefs
 import com.nexus.asisten.ui.Fx
+import com.nexus.asisten.ui.Motion
 import com.nexus.asisten.ui.NX
 import com.nexus.asisten.ui.circle
 import com.nexus.asisten.ui.dp
@@ -104,6 +106,8 @@ class OverlayService : Service(), PanelHost, RecordHost {
     private var guardR: View? = null
     private var bannerView: View? = null
     private var recBar: RecordBar? = null
+    private var backBubble: BackBubble? = null
+    private var panelParams: WindowManager.LayoutParams? = null
     private var hideUntil = 0L
     private val othersPresent by lazy { Prefs.compatMode && GameConflict.installed(this).isNotEmpty() }
 
@@ -191,7 +195,11 @@ class OverlayService : Service(), PanelHost, RecordHost {
             inGame = it.poll() == pkg
             if (inGame) awaySince = 0L else if (awaySince == 0L) awaySince = now
         }
-        if (!inGame && awaySince > 0 && now - awaySince > 90_000) { stopSelf(); return }
+        val bubbleUp = backBubble?.shown == true
+        if (inGame && bubbleUp && detector != null) backBubble?.hide()
+        // Selama gelembung "Kembali ke game" tampil, pengguna sedang memakai aplikasi lain: beri waktu lebih lama.
+        val awayLimit = if (bubbleUp) 20 * 60_000L else 90_000L
+        if (!inGame && awaySince > 0 && now - awaySince > awayLimit) { stopSelf(); return }
         if (panel == null && now >= hideUntil) handleView?.visibility = if (inGame || now - awaySince < 3000) View.VISIBLE else View.GONE
         if (inGame) {
             session += dt
@@ -347,12 +355,18 @@ class OverlayService : Service(), PanelHost, RecordHost {
             Toast.makeText(applicationContext, "Gagal membuka panel Asisten", Toast.LENGTH_SHORT).show()
             return
         }
+        // Blur latar (Android 12+, bila perangkat mendukung) memberi kesan kaca premium di atas game.
+        val blur = Build.VERSION.SDK_INT >= 31 && Prefs.panelBlur && try { wm.isCrossWindowBlurEnabled } catch (_: Throwable) { false }
         val params = overlayParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                (if (blur) WindowManager.LayoutParams.FLAG_BLUR_BEHIND else 0)
         )
+        if (blur && Build.VERSION.SDK_INT >= 31) params.blurBehindRadius = 0
         try {
             wm.addView(ui.root, params)
+            panelParams = params
+            if (blur) animateBlur(ui.root, params, 0, dp(16), 520)
             panel = ui
             ui.start()
             handleView?.visibility = View.INVISIBLE
@@ -369,10 +383,27 @@ class OverlayService : Service(), PanelHost, RecordHost {
         if (p != null) {
             fps.stop()
             ping.stop()
-            if (animate) p.animateOut { try { wm.removeView(p.root) } catch (_: Exception) {} }
+            if (animate) {
+                panelParams?.let { pp -> if (Build.VERSION.SDK_INT >= 31 && pp.blurBehindRadius > 0) animateBlur(p.root, pp, pp.blurBehindRadius, 0, 300) }
+                p.animateOut { try { wm.removeView(p.root) } catch (_: Exception) {} }
+            }
             else try { wm.removeView(p.root) } catch (_: Exception) {}
         }
         handleView?.visibility = View.VISIBLE
+    }
+
+    private fun animateBlur(v: View, p: WindowManager.LayoutParams, from: Int, to: Int, dur: Long) {
+        if (Build.VERSION.SDK_INT < 31) return
+        var last = from
+        Motion.run(dur) { t ->
+            val r = (from + (to - from) * Motion.outCubic(t)).toInt()
+            // Perbarui jendela hanya bila radius berubah cukup besar, supaya tidak membebani game.
+            if (abs(r - last) >= 2 || t >= 1f) {
+                last = r
+                p.blurBehindRadius = r
+                try { wm.updateViewLayout(v, p) } catch (_: Exception) {}
+            }
+        }
     }
 
     override fun close() = closePanel()
@@ -708,16 +739,29 @@ class OverlayService : Service(), PanelHost, RecordHost {
         // Tunggu animasi tutup panel selesai supaya jendela baru langsung terlihat.
         handler.postDelayed({
             try {
-                if (Prefs.floatingWindow) {
-                    if (GameUtils.launchFloating(this, pkg, Prefs.floatSize)) toast("$name dibuka sebagai jendela mengambang")
-                    else toast("HP belum mendukung jendela mengambang, $name dibuka layar penuh")
+                val canFloat = Prefs.floatingWindow && GameUtils.freeformSupported(this)
+                if (canFloat && GameUtils.launchFloating(this, pkg, Prefs.floatSize)) {
+                    toast("$name dibuka sebagai jendela mengambang")
                 } else {
+                    // Tanpa izin atau pengaturan tambahan: buka penuh, lalu gelembung Nexus untuk kembali ke game.
                     GameUtils.launch(this, pkg)
+                    showBackBubble()
                 }
             } catch (_: Exception) {
-                try { GameUtils.launch(this, pkg) } catch (_: Exception) { toast("Gagal membuka $name") }
+                try { GameUtils.launch(this, pkg); showBackBubble() } catch (_: Exception) { toast("Gagal membuka $name") }
             }
         }, 300)
+    }
+
+    private fun showBackBubble() {
+        val b = backBubble ?: BackBubble(this, wm) { returnToGame() }.also { backBubble = it }
+        // Jangan tampilkan seketika: tunggu aplikasi tujuan benar-benar di depan supaya tidak ikut terhapus oleh deteksi "kembali ke game".
+        handler.postDelayed({ if (started) b.show(GameRepo.icon(this, pkg)) }, 1200)
+    }
+
+    private fun returnToGame() {
+        backBubble?.hide()
+        try { GameUtils.launch(this, pkg) } catch (_: Exception) { toast("Gagal kembali ke game") }
     }
 
     override fun floatSupported() = GameUtils.freeformSupported(this)
@@ -749,6 +793,8 @@ class OverlayService : Service(), PanelHost, RecordHost {
         closePanel(false)
         recBar?.hide()
         recBar = null
+        backBubble?.hide(true)
+        backBubble = null
         hudInst?.release()
         if (ScreenCaptureService.ready || ScreenCaptureService.recording) ScreenCaptureService.send(this, ScreenCaptureService.ACTION_END)
         bannerView?.let { try { wm.removeView(it) } catch (_: Exception) {} }

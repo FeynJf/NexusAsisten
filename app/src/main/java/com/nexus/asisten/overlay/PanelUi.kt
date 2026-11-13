@@ -87,7 +87,9 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     private val arcBtns = ArrayList<View>()
     private val arcOffsets = ArrayList<Pair<Float, Float>>()
     private var laidOut = false
+    private var lastNear = -1
     private var closing = false
+    private var introRun: MutableList<Motion.Handle>? = null
     private var tabW = 0
 
     private var tvFps: TextView? = null
@@ -103,9 +105,16 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     private class Tile(val icon: Int, val label: String, val state: (() -> Boolean)?, val onClick: () -> Unit)
 
     init {
-        scrim.background = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#1A000000"), Color.parseColor("#59000000"))
+        val shade = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#26000000"), Color.parseColor("#8C04050E"))
         )
+        val rise = GradientDrawable().apply {
+            gradientType = GradientDrawable.RADIAL_GRADIENT
+            setGradientCenter(0.5f, 1.0f)
+            gradientRadius = 520f * ctx.resources.displayMetrics.density
+            colors = intArrayOf(withAlpha(NX.ACCENT, 0x5A), withAlpha(NX.CYAN, 0x16), 0)
+        }
+        scrim.background = android.graphics.drawable.LayerDrawable(arrayOf(shade, rise))
         scrim.setOnClickListener { host.close() }
         root.addView(scrim, FrameLayout.LayoutParams(MATCH, MATCH))
     }
@@ -145,7 +154,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
             showError(e)
         }
         // Jaring pengaman: kalau animasi masuk tidak berjalan (animasi dimatikan/dihemat sistem), paksa tampil.
-        root.postDelayed({ ensureVisible() }, 900)
+        root.postDelayed({ ensureVisible() }, 1700)
     }
 
     private fun showError(e: Throwable) {
@@ -173,9 +182,15 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
                 v.alpha = 1f; v.scaleX = 1f; v.scaleY = 1f; v.translationX = 0f; v.translationY = 0f
             }
         }
+        introRun?.forEach { it.cancel() }
+        introRun = null
+        dome?.intro = 1f
         card?.let { fix(it) }
         arcBtns.forEach { fix(it) }
         origin?.let { fix(it); it.rotation = 0f }
+        pageFrames.getOrNull(0)?.let { f -> ((f.getChildAt(0) as? ScrollView)?.getChildAt(0) as? LinearLayout)?.let { col ->
+            for (i in 0 until col.childCount) fix(col.getChildAt(i))
+        } }
         if (scrim.alpha < 0.99f) { scrim.animate().cancel(); scrim.alpha = 1f }
     }
 
@@ -322,8 +337,8 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         head.addView(tabsRow)
         val indWrap = FrameLayout(ctx)
         tabIndicator = View(ctx)
-        tabIndicator.background = gradientRounded(NX.ACCENT, NX.CYAN, ctx.dpf(2f))
-        tabIndicator.glow(NX.CYAN, 4f)
+        tabIndicator.background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(NX.ACCENT, NX.CYAN, NX.MAGENTA)).also { it.cornerRadius = ctx.dpf(2f) }
+        tabIndicator.glow(NX.CYAN, 8f)
         indWrap.addView(tabIndicator, FrameLayout.LayoutParams(tabW - ctx.dp(28), ctx.dp(3)).also { it.leftMargin = ctx.dp(14) })
         head.add(indWrap, tabsW, WRAP)
         frame.addView(head, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
@@ -355,6 +370,10 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         if (!::tabIndicator.isInitialized) return
         tabIndicator.translationX = pos * tabW
         val near = (pos + 0.5f).toInt().coerceIn(0, tabLabels.size - 1)
+        if (near != lastNear) {
+            if (lastNear >= 0 && laidOut) staggerPage(near, 60L)
+            lastNear = near
+        }
         tabLabels.forEachIndexed { i, t -> t.setTextColor(if (i == near) NX.TEXT else NX.MUTED) }
         pageFrames.forEachIndexed { i, f ->
             val d = min(1f, kotlin.math.abs(pos - i))
@@ -394,61 +413,137 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         val disc = v.getChildAt(0) as FrameLayout
         val r = ctx.dpf(23f)
         disc.background = if (active)
-            GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(NX.ACCENT_DEEP, NX.BLUE)).also {
+            GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(NX.ACCENT_DEEP, NX.BLUE, NX.CYAN)).also {
                 it.shape = GradientDrawable.OVAL
-                it.setStroke(1, withAlpha(Color.WHITE, 0x66))
+                it.setStroke(ctx.dp(1), withAlpha(Color.WHITE, 0x88))
             }
-        else NeonDrawable(Color.parseColor("#F0141A2E"), Color.parseColor("#F00A0D18"), r)
-        disc.glow(if (active) NX.ACCENT else Color.TRANSPARENT, if (active) 10f else 4f)
-        (disc.getChildAt(0) as ImageView).setColorFilter(if (active) Color.WHITE else NX.TEXT)
+        else NeonDrawable(Color.parseColor("#F2171E38"), Color.parseColor("#F20A0D1A"), r)
+        disc.glow(if (active) NX.CYAN else Color.TRANSPARENT, if (active) 12f else 4f)
+        (disc.getChildAt(0) as ImageView).setColorFilter(if (active) Color.WHITE else NX.CYAN)
         (v.getChildAt(1) as TextView).setTextColor(if (active) NX.TEXT else NX.TEXT2)
     }
 
-    // ---------- Animasi ----------
+    // ---------- Animasi (Motion: tidak tergantung skala animator sistem) ----------
     private fun playIn() {
+        val runs = ArrayList<Motion.Handle>()
+        introRun = runs
+        dome?.intro = 0f
         dome?.start()
+
+        // Latar gelap + cahaya neon naik dari bawah.
         scrim.alpha = 0f
-        scrim.animate().alpha(1f).setDuration(240).start()
+        runs += Motion.run(320) { t -> scrim.alpha = Motion.outCubic(t) }
+
+        // Kubah: naik dari bawah dengan pegas, mengembang dari dasar-tengah, bingkai "menyala".
         card?.let { c ->
+            val dy = ctx.dpf(150f)
             c.alpha = 0f
-            c.translationY = ctx.dpf(70f)
-            c.scaleX = 0.96f
-            c.scaleY = 0.96f
-            c.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f).setStartDelay(70).setDuration(400)
-                .setInterpolator(DecelerateInterpolator(1.7f)).start()
+            c.translationY = dy
+            c.scaleX = 0.86f
+            c.scaleY = 0.86f
+            runs += Motion.run(760, 40) { t ->
+                val e = Motion.spring(t)
+                c.alpha = Motion.outCubic((t * 2.4f).coerceAtMost(1f))
+                c.translationY = dy * (1f - e)
+                val sc = 0.86f + 0.14f * e
+                c.scaleX = sc
+                c.scaleY = sc
+            }
+            runs += Motion.run(900, 120) { t -> dome?.intro = Motion.outExpo(t) }
         }
+
+        // Tombol busur terbuka seperti kipas: meluncur dari titik pusat sepanjang busur.
         arcBtns.forEachIndexed { i, b ->
             val (dx, dy) = arcOffsets[i]
-            b.translationX = dx
-            b.translationY = dy
-            b.scaleX = 0.2f
-            b.scaleY = 0.2f
             b.alpha = 0f
-            b.animate().translationX(0f).translationY(0f).scaleX(1f).scaleY(1f).alpha(1f)
-                .setStartDelay(90L + i * 40L).setDuration(460).setInterpolator(OvershootInterpolator(1.5f)).start()
+            b.scaleX = 0.2f; b.scaleY = 0.2f
+            b.translationX = dx; b.translationY = dy
+            runs += Motion.run(680, 170L + i * 50L) { t ->
+                val e = Motion.spring(t)
+                b.translationX = dx * (1f - e)
+                b.translationY = dy * (1f - e)
+                val sc = 0.2f + 0.8f * e
+                b.scaleX = sc; b.scaleY = sc
+                b.alpha = Motion.outCubic((t * 2.6f).coerceAtMost(1f))
+            }
         }
+
         origin?.let { o ->
-            o.scaleX = 0f
-            o.scaleY = 0f
-            o.rotation = -90f
-            o.animate().scaleX(1f).scaleY(1f).rotation(0f).setDuration(380).setInterpolator(OvershootInterpolator(1.6f)).start()
+            o.scaleX = 0f; o.scaleY = 0f; o.rotation = -90f
+            runs += Motion.run(480, 120) { t ->
+                val e = Motion.outBack(t, 1.9f)
+                o.scaleX = e; o.scaleY = e
+                o.rotation = -90f * (1f - Motion.outCubic(t))
+            }
+        }
+
+        // Angka FPS "pop" lalu isi halaman Performa masuk berurutan.
+        tvFps?.let { f ->
+            f.scaleX = 0.5f; f.scaleY = 0.5f; f.alpha = 0f
+            runs += Motion.run(520, 330) { t ->
+                val e = Motion.outBack(t, 2.2f)
+                f.scaleX = 0.5f + 0.5f * e; f.scaleY = 0.5f + 0.5f * e
+                f.alpha = Motion.outCubic(t)
+            }
+        }
+        staggerPage(0, 380L, runs)
+        tabLabels.forEachIndexed { i, tv ->
+            tv.alpha = 0f
+            runs += Motion.run(420, 260L + i * 45L) { t -> tv.alpha = Motion.outCubic(t) }
         }
     }
 
-    /** Animasi keluar: busur menguncup ke tengah, kartu turun, lalu panggil [end]. */
+    /** Anak-anak halaman [page] naik berurutan (dipanggil saat panel dibuka dan saat pindah tab). */
+    private fun staggerPage(page: Int, base: Long, runs: MutableList<Motion.Handle>? = null) {
+        val col = (pageFrames.getOrNull(page)?.getChildAt(0) as? ScrollView)?.getChildAt(0) as? LinearLayout ?: return
+        val dy = ctx.dpf(22f)
+        for (i in 0 until col.childCount) {
+            val v = col.getChildAt(i)
+            v.alpha = 0f
+            v.translationY = dy
+            val h = Motion.run(520, base + i * 55L) { t ->
+                v.alpha = Motion.outCubic(t)
+                v.translationY = dy * (1f - Motion.outExpo(t))
+            }
+            runs?.add(h)
+        }
+    }
+
+    /** Animasi keluar: busur menguncup ke tengah, kubah turun & mengecil, lalu panggil [end]. */
     fun animateOut(end: () -> Unit) {
         closing = true
+        introRun?.forEach { it.cancel() }
+        introRun = null
         val n = arcBtns.size
         arcBtns.forEachIndexed { i, b ->
             val (dx, dy) = arcOffsets[i]
-            b.animate().translationX(dx).translationY(dy).scaleX(0.2f).scaleY(0.2f).alpha(0f)
-                .setStartDelay((n - 1 - i) * 20L).setDuration(240).setInterpolator(AccelerateInterpolator()).start()
+            val fa = b.alpha; val fx = b.translationX; val fy = b.translationY; val fs = b.scaleX
+            Motion.run(240, (n - 1 - i) * 18L) { t ->
+                val e = Motion.inCubic(t)
+                b.translationX = fx + (dx - fx) * e
+                b.translationY = fy + (dy - fy) * e
+                val sc = fs + (0.2f - fs) * e
+                b.scaleX = sc; b.scaleY = sc
+                b.alpha = fa * (1f - e)
+            }
         }
-        origin?.animate()?.scaleX(0f)?.scaleY(0f)?.rotation(90f)?.setDuration(240)?.start()
-        card?.animate()?.alpha(0f)?.translationY(ctx.dpf(60f))?.setDuration(240)?.setInterpolator(AccelerateInterpolator())?.start()
-        scrim.animate().alpha(0f).setDuration(300).start()
-        // Hapus window lewat timer (bukan withEndAction) supaya pasti terhapus walau animasi dibatalkan.
-        root.postDelayed({ end() }, 340)
+        origin?.let { o -> Motion.run(240) { t -> val e = 1f - Motion.inCubic(t); o.scaleX = e; o.scaleY = e; o.rotation = 90f * t } }
+        card?.let { c ->
+            val dy = ctx.dpf(110f)
+            val a0 = c.alpha; val y0 = c.translationY
+            Motion.run(300, 40) { t ->
+                val e = Motion.inCubic(t)
+                c.alpha = a0 * (1f - e)
+                c.translationY = y0 + (dy - y0) * e
+                val sc = 1f - 0.08f * e
+                c.scaleX = sc; c.scaleY = sc
+                dome?.intro = 1f - e
+            }
+        }
+        val s0 = scrim.alpha
+        Motion.run(320) { t -> scrim.alpha = s0 * (1f - Motion.outCubic(t)) }
+        // Hapus window lewat timer supaya pasti terhapus walau animasi dibatalkan.
+        root.postDelayed({ end() }, 360)
     }
 
     fun showTab(i: Int) {
@@ -473,7 +568,9 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         return Pair(sv, col)
     }
 
-    private fun glass(radius: Float = 18f): Drawable = rounded(withAlpha(Color.WHITE, 0x0D), ctx.dpf(radius), NX.LINE, 1)
+    private fun glass(radius: Float = 18f): Drawable =
+        GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(withAlpha(Color.WHITE, 0x16), withAlpha(Color.WHITE, 0x08)))
+            .also { it.cornerRadius = ctx.dpf(radius); it.setStroke(ctx.dp(1), NX.LINE) }
 
     private fun statBlock(label: String, color: Int, sizeSp: Float): Pair<LinearLayout, TextView> {
         val b = ctx.vbox()
@@ -576,8 +673,8 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     private fun styleTile(v: LinearLayout, active: Boolean) {
         val r = ctx.dpf(16f)
         val base: Drawable = if (active)
-            gradientRounded(withAlpha(NX.ACCENT, 0x66), withAlpha(NX.BLUE, 0x33), r, GradientDrawable.Orientation.TL_BR)
-                .also { it.setStroke(ctx.dp(1), NX.ACCENT) }
+            GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(withAlpha(NX.ACCENT, 0x77), withAlpha(NX.BLUE, 0x44), withAlpha(NX.CYAN, 0x30)))
+                .also { it.cornerRadius = r; it.setStroke(ctx.dp(1), withAlpha(NX.CYAN, 0xAA)) }
         else glass(16f)
         v.rippleBg(base, r)
         (v.getChildAt(0) as ImageView).setColorFilter(if (active) NX.CYAN else NX.TEXT2)
@@ -693,17 +790,22 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         col.add(ctx.chipRow(listOf("Jendela mengambang", "Layar penuh"), if (Prefs.floatingWindow) 0 else 1) {
             Prefs.floatingWindow = it == 0
         })
-        col.add(ctx.sectionTitle("Ukuran jendela"), t = 14, b = 8)
-        col.add(ctx.chipRow(listOf("Kecil", "Sedang", "Besar"), Prefs.floatSize) { Prefs.floatSize = it })
-
-        if (!host.floatSupported()) {
-            val warn = ctx.vbox(14, 12)
-            warn.background = rounded(withAlpha(NX.WARN, 0x1F), ctx.dpf(16f), withAlpha(NX.WARN, 0x66), 1)
-            warn.addView(ctx.tv("HP ini belum mengaktifkan mode jendela. Aplikasi akan dibuka layar penuh.", 12.5f, NX.TEXT))
-            warn.add(ctx.tv("Lihat cara mengaktifkannya", 12.5f, NX.WARN, 700), t = 8)
-            warn.setOnClickListener { host.openFloatHelp() }
-            warn.pressFx(0.98f)
-            col.add(warn, t = 14)
+        if (host.floatSupported() && Prefs.floatingWindow) {
+            col.add(ctx.sectionTitle("Ukuran jendela"), t = 14, b = 8)
+            col.add(ctx.chipRow(listOf("Kecil", "Sedang", "Besar"), Prefs.floatSize) { Prefs.floatSize = it })
+        } else {
+            // Tanpa izin atau pengaturan tambahan: aplikasi dibuka penuh, lalu gelembung Nexus membawa pulang ke game.
+            val tip = ctx.vbox(14, 12)
+            tip.background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(withAlpha(NX.CYAN, 0x26), withAlpha(NX.ACCENT, 0x1A))
+            ).also { it.cornerRadius = ctx.dpf(16f); it.setStroke(ctx.dp(1), withAlpha(NX.CYAN, 0x77)) }
+            tip.addView(ctx.tv("Tanpa izin tambahan", 12f, NX.CYAN, 700).also { it.isAllCaps = true; it.letterSpacing = 0.12f })
+            tip.add(ctx.tv("Aplikasi dibuka di atas game. Ketuk gelembung Nexus yang muncul untuk langsung kembali ke game.", 12.5f, NX.TEXT), t = 6)
+            val more = ctx.tv("Mau jendela mengambang sungguhan? Lihat caranya", 12f, NX.MUTED, 500)
+            more.setOnClickListener { host.openFloatHelp() }
+            more.pressFx(0.98f)
+            tip.add(more, t = 8)
+            col.add(tip, t = 14)
         }
 
         col.add(ctx.sectionTitle("Aplikasi saya"), t = 18, b = 10)
@@ -730,7 +832,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
             col.add(row, t = if (i == 0) 0 else 12)
             i += 4
         }
-        col.add(ctx.tv("Ketuk aplikasi untuk membukanya di atas game.", 11.5f, NX.MUTED), t = 14, b = 10)
+        col.add(ctx.tv("Ketuk aplikasi untuk membukanya tanpa menutup game.", 11.5f, NX.MUTED), t = 14, b = 10)
         return sv
     }
 

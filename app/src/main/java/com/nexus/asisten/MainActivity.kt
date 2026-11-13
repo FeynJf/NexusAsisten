@@ -171,12 +171,13 @@ class MainActivity : AppCompatActivity() {
     private fun buildTopBar() {
         val bar = hbox()
         val logo = FrameLayout(this)
-        logo.background = gradientRounded(NX.ACCENT_DEEP, NX.CYAN, dpf(16f), GradientDrawable.Orientation.TL_BR)
-        logo.glow(NX.ACCENT, 12f)
+        logo.background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(NX.ACCENT_DEEP, NX.BLUE, NX.CYAN))
+            .also { it.cornerRadius = dpf(16f); it.setStroke(1, withAlpha(Color.WHITE, 0x66)) }
+        logo.glow(NX.CYAN, 14f)
         logo.addView(icon(R.drawable.ic_gamepad, Color.WHITE, 24), FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
         bar.add(logo, dp(46), dp(46), 0f, 0, 0, 14, 0)
         val t = vbox()
-        t.addView(tv("NEXUS", 26f, NX.TEXT, 700).also { it.letterSpacing = 0.22f })
+        t.addView(tv("NEXUS", 26f, NX.TEXT, 700).also { it.letterSpacing = 0.26f })
         t.add(tv("Halo, ${Prefs.userName}", 12.5f, NX.TEXT2), t = 0)
         bar.add(t, 0, WRAP, 1f)
         val set = FrameLayout(this)
@@ -234,9 +235,10 @@ class MainActivity : AppCompatActivity() {
         val prof = Prefs.profile(g.pkg)
         val hero = vbox(20, 20)
         hero.background = GradientDrawable(
-            GradientDrawable.Orientation.TL_BR, intArrayOf(Color.parseColor("#4A2BE0"), Color.parseColor("#14123A"), Color.parseColor("#070816"))
-        ).also { it.cornerRadius = dpf(30f); it.setStroke(1, withAlpha(Color.WHITE, 0x44)) }
-        hero.glow(NX.ACCENT, 16f)
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.parseColor("#5B34F5"), Color.parseColor("#2A1A7A"), Color.parseColor("#120F36"), Color.parseColor("#06070F"))
+        ).also { it.cornerRadius = dpf(30f); it.setStroke(dp(1), withAlpha(NX.CYAN, 0x66)) }
+        hero.glow(NX.ACCENT, 18f)
         val top = hbox()
         val ic = appIcon(g.icon, 76, 22)
         ic.glow(NX.CYAN, 12f)

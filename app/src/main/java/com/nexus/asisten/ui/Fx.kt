@@ -58,12 +58,15 @@ object Fx {
     }
 
     fun animateIn(v: View) {
-        v.alpha = 0f
-        v.translationY = -v.context.dpf(24f)
-        v.scaleX = 0.9f
-        v.scaleY = 0.9f
-        v.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f)
-            .setDuration(280).setInterpolator(OvershootInterpolator(1.1f)).start()
+        val dy = v.context.dpf(24f)
+        Motion.run(420) { t ->
+            val e = Motion.spring(t)
+            v.alpha = Motion.outCubic((t * 2.2f).coerceAtMost(1f))
+            v.translationY = -dy * (1f - e)
+            val sc = 0.9f + 0.1f * e
+            v.scaleX = sc
+            v.scaleY = sc
+        }
     }
 
     fun animateOut(v: View, end: () -> Unit) {
@@ -71,15 +74,18 @@ object Fx {
             .setInterpolator(DecelerateInterpolator()).withEndAction(end).start()
     }
 
-    /** Anak-anak [container] muncul berurutan dari bawah sambil memudar masuk. */
+    /** Anak-anak [container] muncul berurutan dari bawah sambil memudar masuk (tidak tergantung skala animator sistem). */
     fun stagger(container: ViewGroup, base: Long = 0L, step: Long = 55L) {
         val dy = container.context.dpf(26f)
         for (i in 0 until container.childCount) {
             val v = container.getChildAt(i)
             v.alpha = 0f
             v.translationY = dy
-            v.animate().alpha(1f).translationY(0f).setStartDelay(base + i * step).setDuration(380)
-                .setInterpolator(DecelerateInterpolator(1.8f)).start()
+            Motion.run(520, base + i * step) { t ->
+                val e = Motion.outExpo(t)
+                v.alpha = Motion.outCubic(t)
+                v.translationY = dy * (1f - e)
+            }
         }
     }
 
@@ -123,14 +129,24 @@ object Fx {
 /** Efek tekan: mengecil sedikit saat disentuh, membal saat dilepas, plus getar halus. */
 @SuppressLint("ClickableViewAccessibility")
 fun View.pressFx(scale: Float = 0.95f) {
+    var run: Motion.Handle? = null
+    fun go(to: Float, dur: Long, spring: Boolean) {
+        run?.cancel()
+        val from = scaleX
+        run = Motion.run(dur) { t ->
+            val e = if (spring) Motion.spring(t) else Motion.outCubic(t)
+            val sc = from + (to - from) * e
+            scaleX = sc
+            scaleY = sc
+        }
+    }
     setOnTouchListener { v, e ->
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 if (Prefs.haptic) v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                v.animate().scaleX(scale).scaleY(scale).setDuration(90).start()
+                go(scale, 110, false)
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
-                v.animate().scaleX(1f).scaleY(1f).setDuration(200).setInterpolator(OvershootInterpolator(2.2f)).start()
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> go(1f, 380, true)
         }
         false
     }

@@ -94,21 +94,23 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         group(col, "Jendela mengambang") { c ->
-            c.addView(switchRow("Buka aplikasi overlay sebagai jendela", "Aplikasi dari tab Aplikasi di overlay dibuka mengambang di atas game.", Prefs.floatingWindow) { Prefs.floatingWindow = it })
+            c.addView(switchRow("Buka aplikasi overlay sebagai jendela", "Aplikasi dari tab Aplikasi di overlay dibuka mengambang di atas game bila HP mendukung.", Prefs.floatingWindow) { Prefs.floatingWindow = it })
             val box = vbox(16, 10)
             box.addView(tv("Ukuran jendela", 15f, NX.TEXT, 500))
             box.add(chipRow(listOf("Kecil", "Sedang", "Besar"), Prefs.floatSize) { Prefs.floatSize = it }, t = 10, b = 6)
             val ok = GameUtils.freeformSupported(this)
             box.add(tv(
                 if (ok) "Mode jendela aktif di HP ini."
-                else "Mode jendela belum aktif di HP ini, jadi aplikasi dibuka layar penuh. Aktifkan salah satu cara di bawah, lalu restart HP.",
-                12.5f, if (ok) NX.GOOD else NX.WARN
+                else "Mode jendela belum aktif di HP ini. Tidak perlu izin apa pun: aplikasi dibuka di atas game dan gelembung Nexus muncul untuk kembali ke game dengan satu ketukan.",
+                12.5f, if (ok) NX.GOOD else NX.TEXT2
             ), t = 8)
             if (!ok) {
-                box.add(tv("Opsi Pengembang → \"Aktifkan jendela freeform\" dan \"Paksa aktivitas agar dapat diubah ukurannya\".", 12f, NX.TEXT2), t = 6)
+                box.add(tv("Opsional, untuk jendela mengambang sungguhan (butuh pengaturan HP, bukan izin aplikasi):", 12f, NX.MUTED), t = 12)
+                box.add(tv("Opsi Pengembang → \"Aktifkan jendela freeform\" / \"Aktifkan jendela bentuk bebas\", lalu \"Paksa aktivitas agar dapat diubah ukurannya\". Restart HP. Jika Opsi Pengembang belum ada: Tentang ponsel → ketuk Nomor build 7 kali.", 12f, NX.TEXT2), t = 6)
+                box.add(ghostButton("Buka Opsi Pengembang") { Perms.openDevOptions(this) }, t = 10)
                 box.add(ghostButton("Salin perintah ADB") {
                     copyText("adb", "adb shell settings put global enable_freeform_support 1\nadb shell settings put global force_resizable_activities 1")
-                }, t = 10)
+                }, t = 8)
                 if (Perms.secure(this)) box.add(gradientButton("Aktifkan sekarang") {
                     Fx.say(this, if (GameUtils.enableFreeform(this)) "Aktif. Restart HP untuk menerapkan." else "Gagal mengaktifkan", Fx.OK)
                 }, t = 8)
@@ -137,6 +139,8 @@ class SettingsActivity : AppCompatActivity() {
 
         group(col, "Tampilan & umpan balik") { c ->
             c.addView(switchRow("Getar halus saat mengetuk", "Memberi sensasi tekan pada tombol dan kartu.", Prefs.haptic) { Prefs.haptic = it })
+            c.sep()
+            c.addView(switchRow("Blur latar panel", "Mengaburkan game di belakang panel overlay (Android 12+). Matikan bila game terasa berat.", Prefs.panelBlur) { Prefs.panelBlur = it })
         }
 
         group(col, "Asisten Game di layar Awal") { c ->

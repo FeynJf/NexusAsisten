@@ -121,6 +121,14 @@ object Perms {
         Intent(Settings.ACTION_WIFI_SETTINGS)
     )
 
+    /** Opsi Pengembang (bila sudah aktif); cadangan: Tentang ponsel (untuk mengetuk Nomor build 7x) lalu Pengaturan. */
+    fun openDevOptions(ctx: Context) = openFirst(
+        ctx,
+        Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
+        Intent(Settings.ACTION_DEVICE_INFO_SETTINGS),
+        Intent(Settings.ACTION_SETTINGS)
+    )
+
     fun openPrivateDns(ctx: Context) = openFirst(
         ctx,
         Intent("android.settings.PRIVATE_DNS_SETTINGS"),

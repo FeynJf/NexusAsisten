@@ -26,19 +26,20 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.widget.SwitchCompat
 
-/** Palet Nexus Gamer: hitam pekat, aksen neon violet + cyan. */
+/** Palet Nexus Gamer: hitam pekat, aksen neon violet + cyan + magenta. */
 object NX {
-    val BG = Color.parseColor("#04050A")
-    val SURFACE_DEEP = Color.parseColor("#080A12")
-    val SURFACE_HI = Color.parseColor("#131828")
+    val BG = Color.parseColor("#05060D")
+    val SURFACE_DEEP = Color.parseColor("#080A14")
+    val SURFACE_HI = Color.parseColor("#161B30")
     val SURFACE = Color.parseColor("#0C101B")
-    val SURFACE2 = Color.parseColor("#141A2B")
-    val LINE = Color.parseColor("#24FFFFFF")
+    val SURFACE2 = Color.parseColor("#151B30")
+    val LINE = Color.parseColor("#26FFFFFF")
     val TEXT = Color.parseColor("#F4F6FF")
     val TEXT2 = Color.parseColor("#A8B1D0")
     val MUTED = Color.parseColor("#667094")
-    val ACCENT = Color.parseColor("#9D6BFF")
+    val ACCENT = Color.parseColor("#A66BFF")
     val ACCENT_DEEP = Color.parseColor("#6A3DF0")
+    val MAGENTA = Color.parseColor("#FF4FD8")
     val BLUE = Color.parseColor("#2B8CFF")
     val CYAN = Color.parseColor("#21E6FF")
     val GOOD = Color.parseColor("#3DF0A0")
@@ -70,7 +71,13 @@ fun screenBg(): Drawable {
         gradientRadius = 300f * d
         colors = intArrayOf(withAlpha(NX.CYAN, 0x1C), 0)
     }
-    return LayerDrawable(arrayOf(base, glowA, glowB))
+    val glowC = GradientDrawable().apply {
+        gradientType = GradientDrawable.RADIAL_GRADIENT
+        setGradientCenter(0.95f, 0.98f)
+        gradientRadius = 320f * d
+        colors = intArrayOf(withAlpha(NX.MAGENTA, 0x22), 0)
+    }
+    return LayerDrawable(arrayOf(base, glowA, glowB, glowC))
 }
 
 /** Kartu kaca hitam dengan garis tepi gradien neon (stroke gradien tidak ada di GradientDrawable, jadi digambar manual). */
@@ -83,12 +90,22 @@ class NeonDrawable(
     private val strokePx: Float = 1.5f
 ) : Drawable() {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val sheen = Paint(Paint.ANTI_ALIAS_FLAG)
     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val rect = RectF()
 
     override fun onBoundsChange(b: android.graphics.Rect) {
         fill.shader = LinearGradient(0f, b.top.toFloat(), 0f, b.bottom.toFloat(), top, bottom, Shader.TileMode.CLAMP)
-        line.shader = LinearGradient(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat(), c1, c2, Shader.TileMode.CLAMP)
+        // Kilau kaca tipis di bagian atas kartu.
+        sheen.shader = LinearGradient(
+            0f, b.top.toFloat(), 0f, b.top + b.height() * 0.5f,
+            0x1AFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP
+        )
+        // Tepi neon tiga warna: violet -> cyan -> magenta, mengalir diagonal.
+        line.shader = LinearGradient(
+            b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat(),
+            intArrayOf(c1, c2, withAlpha(NX.MAGENTA, 0x55)), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
+        )
         line.strokeWidth = strokePx
     }
 
@@ -96,12 +113,13 @@ class NeonDrawable(
         rect.set(bounds)
         rect.inset(strokePx / 2f, strokePx / 2f)
         c.drawRoundRect(rect, radius, radius, fill)
+        c.drawRoundRect(rect, radius, radius, sheen)
         c.drawRoundRect(rect, radius, radius, line)
     }
 
     override fun getOutline(outline: Outline) = outline.setRoundRect(bounds, radius)
-    override fun setAlpha(alpha: Int) { fill.alpha = alpha; line.alpha = alpha }
-    override fun setColorFilter(cf: ColorFilter?) { fill.colorFilter = cf; line.colorFilter = cf }
+    override fun setAlpha(alpha: Int) { fill.alpha = alpha; sheen.alpha = alpha; line.alpha = alpha }
+    override fun setColorFilter(cf: ColorFilter?) { fill.colorFilter = cf; sheen.colorFilter = cf; line.colorFilter = cf }
     @Deprecated("Deprecated in Java")
     override fun getOpacity() = PixelFormat.TRANSLUCENT
 }
@@ -190,13 +208,23 @@ fun Context.card(radiusDp: Int = 22, color: Int = NX.SURFACE): LinearLayout = Li
     orientation = LinearLayout.VERTICAL
     val r = dpf(radiusDp.toFloat())
     background = if (color == NX.SURFACE)
-        NeonDrawable(Color.parseColor("#F0111729"), Color.parseColor("#F00A0D17"), r, strokePx = dpf(1.2f))
+        NeonDrawable(Color.parseColor("#F2131A33"), Color.parseColor("#F20A0D1A"), r, strokePx = dpf(1.3f))
     else rounded(color, r, NX.LINE, 1)
     clipToOutline = false
 }
 
 fun Context.sectionTitle(text: String): TextView =
-    tv(text, 11f, NX.ACCENT, 700).also { it.isAllCaps = true; it.letterSpacing = 0.16f }
+    tv(text, 11f, NX.CYAN, 700).also {
+        it.isAllCaps = true
+        it.letterSpacing = 0.18f
+        // Penanda gradien kecil di depan judul bagian.
+        val bar = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(NX.CYAN, NX.ACCENT)).apply {
+            cornerRadius = dpf(2f)
+            setSize(dp(3), dp(12))
+        }
+        it.setCompoundDrawablesWithIntrinsicBounds(bar, null, null, null)
+        it.compoundDrawablePadding = dp(8)
+    }
 
 fun Context.chip(text: String, selected: Boolean, accent: Int = NX.ACCENT, onClick: () -> Unit): TextView {
     val c = tv(text, 12.5f, if (selected) Color.WHITE else NX.TEXT2, if (selected) 700 else 500)
@@ -204,11 +232,11 @@ fun Context.chip(text: String, selected: Boolean, accent: Int = NX.ACCENT, onCli
     c.setPadding(dp(12), dp(11), dp(12), dp(11))
     val r = dpf(14f)
     val base = if (selected)
-        gradientRounded(accent, withAlpha(accent, 0xB0), r, GradientDrawable.Orientation.TL_BR)
-            .also { it.setStroke(1, withAlpha(Color.WHITE, 0x55)) }
+        GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(accent, withAlpha(accent, 0xA0), withAlpha(NX.BLUE, 0xB0)))
+            .also { it.cornerRadius = r; it.setStroke(1, withAlpha(Color.WHITE, 0x66)) }
     else rounded(NX.SURFACE2, r, NX.LINE, 1)
     c.rippleBg(base, r)
-    if (selected) c.glow(accent, 6f)
+    if (selected) c.glow(accent, 8f)
     c.setOnClickListener { onClick() }
     return c
 }
@@ -239,15 +267,15 @@ fun Context.chipRow(
 fun Context.gradientButton(text: String, onClick: () -> Unit): TextView {
     val b = tv(text, 15f, Color.WHITE, 700)
     b.isAllCaps = true
-    b.letterSpacing = 0.08f
+    b.letterSpacing = 0.12f
     b.gravity = Gravity.CENTER
     b.setPadding(dp(20), dp(15), dp(20), dp(15))
     val r = dpf(16f)
     b.rippleBg(
-        gradientRounded(NX.ACCENT_DEEP, NX.BLUE, r, GradientDrawable.Orientation.LEFT_RIGHT)
-            .also { it.setStroke(1, withAlpha(Color.WHITE, 0x44)) }, r
+        GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(NX.ACCENT_DEEP, NX.BLUE, NX.CYAN))
+            .also { it.cornerRadius = r; it.setStroke(1, withAlpha(Color.WHITE, 0x55)) }, r
     )
-    b.glow(NX.ACCENT, 12f)
+    b.glow(NX.ACCENT, 14f)
     b.setOnClickListener { onClick() }
     return b
 }
@@ -259,7 +287,7 @@ fun Context.ghostButton(text: String, onClick: () -> Unit): TextView {
     b.gravity = Gravity.CENTER
     b.setPadding(dp(18), dp(14), dp(18), dp(14))
     val r = dpf(16f)
-    b.rippleBg(rounded(withAlpha(Color.WHITE, 0x0A), r, withAlpha(NX.ACCENT, 0x88), dp(1)), r)
+    b.rippleBg(rounded(withAlpha(Color.WHITE, 0x0C), r, withAlpha(NX.CYAN, 0x77), dp(1)), r)
     b.setOnClickListener { onClick() }
     return b
 }
@@ -268,7 +296,7 @@ fun Context.styledSwitch(checked: Boolean, onChange: (Boolean) -> Unit): SwitchC
     val sw = SwitchCompat(this)
     val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
     sw.thumbTintList = ColorStateList(states, intArrayOf(Color.WHITE, NX.TEXT2))
-    sw.trackTintList = ColorStateList(states, intArrayOf(NX.ACCENT, NX.SURFACE2))
+    sw.trackTintList = ColorStateList(states, intArrayOf(NX.ACCENT_DEEP, NX.SURFACE2))
     sw.isChecked = checked
     sw.setOnCheckedChangeListener { _, c -> onChange(c) }
     return sw
@@ -299,8 +327,9 @@ fun Context.linkRow(title: String, sub: String?, iconRes: Int, onClick: () -> Un
     val row = hbox()
     row.setPadding(dp(16), dp(14), dp(12), dp(14))
     val badge = android.widget.FrameLayout(this)
-    badge.background = rounded(withAlpha(NX.ACCENT, 0x26), dpf(12f), withAlpha(NX.ACCENT, 0x44), 1)
-    badge.addView(icon(iconRes, NX.ACCENT, 20), android.widget.FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+    badge.background = gradientRounded(withAlpha(NX.ACCENT, 0x44), withAlpha(NX.CYAN, 0x22), dpf(12f), GradientDrawable.Orientation.TL_BR)
+        .also { it.setStroke(1, withAlpha(NX.ACCENT, 0x77)) }
+    badge.addView(icon(iconRes, NX.CYAN, 20), android.widget.FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
     row.add(badge, dp(38), dp(38), 0f, 0, 0, 14, 0)
     val t = vbox()
     t.add(tv(title, 15f, NX.TEXT, 500))
