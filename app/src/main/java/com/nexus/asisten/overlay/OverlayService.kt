@@ -450,67 +450,168 @@ class OverlayService : Service(), PanelHost, RecordHost {
         handler.post { showBanner(msg) }
     }
 
-    /** Notifikasi kapsul beranimasi di atas layar game (tidak menghalangi sentuhan). */
+    private var hudInst: HudCard? = null
+    private val hud: HudCard get() = hudInst ?: HudCard(this, wm, handler).also { hudInst = it }
+
+    /** Keterangan singkat untuk tombol yang bisa nyala/mati, supaya notifikasinya bermakna. */
+    private fun describe(title: String, on: Boolean): String? = when (title) {
+        "Mulai cepat" -> if (on) "Aktif · game dioptimalkan otomatis saat dibuka" else "Mati · optimasi manual lewat Boost"
+        "Kunci tepi" -> if (on) "Aktif · sentuhan tak sengaja di tepi diabaikan" else "Mati"
+        "Layar menyala" -> if (on) "Aktif · layar tidak padam saat bermain" else "Mati · layar mengikuti timeout biasa"
+        "Bidik" -> if (on) "Aktif · titik bidik tampil di tengah layar" else "Mati"
+        "Senyap" -> if (on) "Aktif · notifikasi & panggilan disenyapkan" else "Mati"
+        "Kunci orientasi" -> if (on) "Aktif · layar tidak berputar sendiri" else "Mati"
+        else -> null
+    }
+
+    /** Notifikasi kartu kaca beranimasi (meluncur dengan pegas + garis waktu), tidak menghalangi sentuhan. */
     private fun showBanner(msg: String) {
-        bannerView?.let { try { wm.removeView(it) } catch (_: Exception) {} }
-        val warn = msg.contains("gagal", true) || msg.contains("panas", true) || msg.contains("izin", true)
-        val v = Fx.bannerView(this, msg, if (warn) Fx.WARN else Fx.OK)
-        val params = overlayParams(
-            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-        )
-        params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        params.y = dp(36)
-        try {
-            wm.addView(v, params)
-            bannerView = v
-            Fx.animateIn(v)
-        } catch (_: Exception) {
-            return
-        }
-        handler.postDelayed({
-            if (bannerView === v) {
-                Fx.animateOut(v) {
-                    try { wm.removeView(v) } catch (_: Exception) {}
-                    if (bannerView === v) bannerView = null
-                }
+        val lower = msg.lowercase()
+        val warn = lower.contains("gagal") || lower.contains("panas") || lower.contains("izin") || lower.contains("tidak ")
+        var title = msg
+        var sub: String? = null
+        var on: Boolean? = null
+        val dot = msg.indexOf(" · ")
+        val colon = msg.indexOf(": ")
+        when {
+            dot > 0 -> { title = msg.substring(0, dot); sub = msg.substring(dot + 3) }
+            colon in 1..24 -> {
+                title = msg.substring(0, colon)
+                val tail = msg.substring(colon + 2)
+                if (tail == "aktif" || tail == "mati") {
+                    on = tail == "aktif"
+                    sub = describe(title, on) ?: tail.replaceFirstChar { it.uppercase() }
+                } else sub = tail
             }
-        }, 2300)
+        }
+        val kind = when {
+            warn -> HudCard.Kind.WARN
+            on == false -> HudCard.Kind.INFO
+            else -> HudCard.Kind.OK
+        }
+        val t = title.lowercase()
+        val icon = when {
+            warn -> R.drawable.ic_warn
+            t.contains("rekam") || t.contains("video") -> R.drawable.ic_video
+            t.contains("cuplikan") -> R.drawable.ic_scissors
+            t.contains("boost") || t.contains("cepat") || t.contains("ram") -> R.drawable.ic_bolt
+            t.contains("jaringan") || t.contains("ping") || t.contains("wlan") || t.contains("wi-fi") -> R.drawable.ic_wifi
+            t.contains("senyap") || t.contains("fokus") -> R.drawable.ic_bell
+            t.contains("bidik") -> R.drawable.ic_crosshair
+            t.contains("tepi") -> R.drawable.ic_hand
+            t.contains("refresh") || t.contains("layar") -> R.drawable.ic_monitor
+            t.contains("orientasi") -> R.drawable.ic_rotate
+            t.contains("mode") -> R.drawable.ic_speed
+            else -> R.drawable.ic_check
+        }
+        hud.toast(title, sub, kind, icon)
+    }
+
+    private fun gb(mb: Long) = String.format("%.1f GB", mb / 1024f)
+    private fun quality(frac: Float) = when {
+        frac > 0.66f -> NX.GOOD
+        frac > 0.33f -> NX.WARN
+        else -> NX.HOT
     }
 
     override fun boost() {
-        toast("Boost berjalan...")
+        hud.begin("Boost", R.drawable.ic_bolt, listOf("Kosongkan RAM", "Kunci Wi-Fi", "Atur performa", "Uji jaringan"))
         bg.execute {
             val r = try { Booster.cleanMemory(this, setOf(pkg)) } catch (_: Exception) { Booster.CleanResult(0, 0) }
+            handler.post { hud.step(0, if (r.freedMb > 0) "+${r.freedMb} MB" else "${r.killed} app") }
+            Thread.sleep(300)
             Booster.holdWifi(this, true)
-            handler.post { applyEffective(false) }
+            handler.post { hud.step(1, "Aktif") }
+            Thread.sleep(300)
+            handler.post { applyEffective(false); hud.step(2, "Siap") }
             val (avg, _, loss) = ping.burst()
-            val net = if (avg < 0) "tanpa koneksi" else "ping $avg ms" + if (loss > 0) ", loss $loss%" else ""
-            toast("Boost selesai · ${r.killed} app dihentikan · +${r.freedMb} MB · $net")
+            handler.post { hud.step(3, if (avg < 0) "Offline" else "$avg ms") }
+            Thread.sleep(450)
+            val (free, total) = SystemStats.ramMb(this)
+            val ramFrac = if (total > 0) free.toFloat() / total else 0f
+            val pingFrac = if (avg < 0) 0f else (1f - avg / 300f).coerceIn(0f, 1f)
+            handler.post {
+                hud.finish(
+                    if (avg < 0) "Selesai · tanpa koneksi internet" else "Selesai · siap bermain",
+                    if (avg < 0) HudCard.Kind.WARN else HudCard.Kind.OK,
+                    if (avg < 0) null else "SIAP MAIN",
+                    listOf(
+                        HudCard.Metric("RAM bebas", "${gb(free)} / ${gb(total)}", ramFrac, quality(ramFrac * 2.2f)),
+                        HudCard.Metric("RAM dibebaskan", "+${r.freedMb} MB", (r.freedMb / 1024f).coerceIn(0f, 1f), NX.CYAN),
+                        HudCard.Metric("Ping", if (avg < 0) "--" else "$avg ms" + if (loss > 0) " · loss $loss%" else "", pingFrac, quality(pingFrac))
+                    ),
+                    if (r.freedMb == 0L) "Android menjaga aplikasi tetap di memori; RAM bebas tidak selalu bertambah banyak." else null
+                )
+            }
         }
     }
 
     override fun cleanMemory() {
-        toast("Mengosongkan RAM...")
+        hud.begin("Kosongkan RAM", R.drawable.ic_nuclear, listOf("Memindai aplikasi latar", "Menghentikan proses", "Mengukur RAM"))
+        handler.postDelayed({ hud.step(0) }, 500)
+        handler.postDelayed({ hud.step(1) }, 1400)
         bg.execute {
-            val r = Booster.cleanMemory(this, setOf(pkg))
-            toast("${r.killed} aplikasi dihentikan, RAM bebas bertambah ${r.freedMb} MB")
+            val r = try { Booster.cleanMemory(this, setOf(pkg)) } catch (_: Exception) { Booster.CleanResult(0, 0) }
+            handler.post {
+                hud.step(1, "${r.killed} app")
+                hud.step(2, if (r.freedMb > 0) "+${r.freedMb} MB" else "Stabil")
+                val total = if (r.totalMb > 0) r.totalMb else SystemStats.ramMb(this).second
+                val beforeFrac = if (total > 0) r.beforeMb.toFloat() / total else 0f
+                val afterFrac = if (total > 0) r.afterMb.toFloat() / total else 0f
+                hud.finish(
+                    if (r.freedMb > 0) "Selesai · +${r.freedMb} MB dibebaskan" else "Selesai · RAM sudah lega",
+                    HudCard.Kind.OK,
+                    if (r.freedMb > 0) "+${r.freedMb} MB" else null,
+                    listOf(
+                        HudCard.Metric("Sebelum", gb(r.beforeMb), beforeFrac, quality(beforeFrac * 2.2f)),
+                        HudCard.Metric("Sesudah", gb(r.afterMb), afterFrac, quality(afterFrac * 2.2f)),
+                        HudCard.Metric("Aplikasi dihentikan", "${r.killed}", -1f, NX.CYAN)
+                    ),
+                    if (r.freedMb == 0L) "Android menjaga aplikasi tetap di memori; RAM bebas tidak selalu bertambah banyak." else null
+                )
+            }
         }
     }
 
     override fun checkNetwork() {
-        toast("Menguji jaringan...")
+        hud.begin("Cek jaringan", R.drawable.ic_globe, listOf("Menyambung ke server", "Mengukur latensi", "Menilai kestabilan"))
+        handler.postDelayed({ hud.step(0) }, 500)
+        handler.postDelayed({ hud.step(1) }, 1400)
         bg.execute {
             val (avg, jitter, loss) = ping.burst()
             val type = SystemStats.networkType(this)
-            if (avg < 0) toast("Tidak ada koneksi internet")
-            else {
-                val verdict = when {
-                    avg < 50 && loss == 0 -> "Sangat baik"
-                    avg < 100 && loss <= 20 -> "Baik"
-                    else -> if (type == "Seluler") "Kurang stabil, coba pakai Wi-Fi" else "Kurang stabil"
+            handler.post {
+                if (avg < 0) {
+                    hud.finish(
+                        "Tidak ada koneksi internet", HudCard.Kind.WARN, "OFFLINE",
+                        listOf(HudCard.Metric("Jaringan", type, -1f, NX.WARN)),
+                        "Periksa Wi-Fi atau paket data, lalu coba lagi."
+                    )
+                    return@post
                 }
-                toast("$type · $avg ms · jitter $jitter ms · loss $loss% · $verdict")
+                hud.step(2, "$avg ms")
+                val (grade, kind) = when {
+                    avg < 50 && loss == 0 -> "SANGAT BAIK" to HudCard.Kind.OK
+                    avg < 100 && loss <= 20 -> "BAIK" to HudCard.Kind.OK
+                    avg < 180 -> "CUKUP" to HudCard.Kind.WARN
+                    else -> "KURANG STABIL" to HudCard.Kind.WARN
+                }
+                val pf = (1f - avg / 250f).coerceIn(0f, 1f)
+                val jf = (1f - jitter / 100f).coerceIn(0f, 1f)
+                val lf = (1f - loss / 100f).coerceIn(0f, 1f)
+                hud.finish(
+                    "Selesai · $type", kind, grade,
+                    listOf(
+                        HudCard.Metric("Ping", "$avg ms", pf, quality(pf)),
+                        HudCard.Metric("Jitter", "$jitter ms", jf, quality(jf)),
+                        HudCard.Metric("Paket hilang", "$loss%", lf, quality(lf))
+                    ),
+                    when {
+                        kind == HudCard.Kind.OK -> "Koneksi optimal untuk game online."
+                        type == "Seluler" -> "Kurang stabil. Coba pindah ke Wi-Fi atau dekatkan ke jendela."
+                        else -> "Kurang stabil. Dekatkan ke router atau gunakan Wi-Fi 5 GHz."
+                    }
+                )
             }
         }
     }
@@ -648,6 +749,7 @@ class OverlayService : Service(), PanelHost, RecordHost {
         closePanel(false)
         recBar?.hide()
         recBar = null
+        hudInst?.release()
         if (ScreenCaptureService.ready || ScreenCaptureService.recording) ScreenCaptureService.send(this, ScreenCaptureService.ACTION_END)
         bannerView?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         bannerView = null

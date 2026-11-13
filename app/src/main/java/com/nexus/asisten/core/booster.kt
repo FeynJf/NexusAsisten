@@ -14,7 +14,7 @@ import kotlin.math.roundToInt
 
 /** Semua aksi yang benar-benar mengubah perilaku perangkat. Panggil dari thread latar. */
 object Booster {
-    data class CleanResult(val killed: Int, val freedMb: Long)
+    data class CleanResult(val killed: Int, val freedMb: Long, val beforeMb: Long = 0, val afterMb: Long = 0, val totalMb: Long = 0)
 
     fun supportedRefresh(ctx: Context): List<Int> {
         val d = ctx.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
@@ -22,29 +22,63 @@ object Booster {
         return display.supportedModes.map { it.refreshRate.roundToInt() }.distinct().sorted().ifEmpty { listOf(60) }
     }
 
-    fun cleanMemory(ctx: Context, keep: Set<String>): CleanResult {
-        val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    /** Paket sistem yang tidak boleh disentuh sama sekali (SystemUI, telepon, keyboard, layanan Google, dll.). */
+    private val criticalSystem = Regex(
+        "systemui|\\.phone$|telecom|bluetooth|\\.nfc|settings|providers|permissioncontroller|packageinstaller|" +
+            "launcher|inputmethod|keyboard|webview|\\.gms|\\.gsf|vending|wallpaper|dialer|contacts|mms|sms|" +
+            "accessibility|print|cellbroadcast|emergency|stk|wifi|netspeed|android$"
+    )
+
+    /** Daftar paket yang aman dihentikan proses latarnya. */
+    private fun cleanTargets(ctx: Context, keep: Set<String>): List<String> {
         val pm = ctx.packageManager
-        val before = SystemStats.ramMb(ctx).first
         val home = pm.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)
             ?.activityInfo?.packageName
-        var killed = 0
+        val ime = Settings.Secure.getString(ctx.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+            ?.substringBefore('/')
         // Jangan sentuh asisten game lain, keyboard, telepon, aksesibilitas, & pendengar notifikasi.
         val shield = if (Prefs.compatMode) GameConflict.protectedPackages(ctx) else emptySet()
+        val out = ArrayList<String>()
         for (ai in pm.getInstalledApplications(0)) {
             val pkg = ai.packageName
-            val isSystem = (ai.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-            if (isSystem || pkg == ctx.packageName || pkg == home || pkg in keep) continue
+            if (pkg == ctx.packageName || pkg == home || pkg == ime || pkg in keep) continue
             if (Prefs.compatMode && GameConflict.isProtected(pkg, shield)) continue
-            try {
-                am.killBackgroundProcesses(pkg)
-                killed++
-            } catch (_: Exception) {
+            val isSystem = (ai.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+            val updatedSystem = (ai.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+            val ok = when {
+                !isSystem -> true
+                updatedSystem && !criticalSystem.containsMatchIn(pkg) -> true
+                // Aplikasi sistem yang punya ikon peluncur (Kamera, Galeri, Chrome, dll.) aman dimulai ulang.
+                pm.getLaunchIntentForPackage(pkg) != null && !criticalSystem.containsMatchIn(pkg) -> true
+                else -> false
             }
+            if (ok) out.add(pkg)
         }
-        try { Thread.sleep(600) } catch (_: InterruptedException) {}
+        return out
+    }
+
+    /**
+     * Hentikan proses latar aplikasi lain lalu ukur RAM bebas sebelum & sesudah (angka nyata).
+     * Dua putaran, karena sebagian aplikasi punya beberapa proses/layanan yang baru berhenti di putaran kedua.
+     */
+    fun cleanMemory(ctx: Context, keep: Set<String>): CleanResult {
+        val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val (before, total) = SystemStats.ramMb(ctx)
+        val targets = try { cleanTargets(ctx, keep) } catch (_: Exception) { emptyList() }
+        var killed = 0
+        repeat(2) { pass ->
+            for (pkg in targets) {
+                try {
+                    am.killBackgroundProcesses(pkg)
+                    if (pass == 0) killed++
+                } catch (_: Exception) {
+                }
+            }
+            try { Thread.sleep(450) } catch (_: InterruptedException) {}
+        }
+        try { Thread.sleep(500) } catch (_: InterruptedException) {}
         val after = SystemStats.ramMb(ctx).first
-        return CleanResult(killed, maxOf(0L, after - before))
+        return CleanResult(killed, maxOf(0L, after - before), before, after, total)
     }
 
     fun targetRefresh(ctx: Context, p: GameProfile, mode: Int): Int {

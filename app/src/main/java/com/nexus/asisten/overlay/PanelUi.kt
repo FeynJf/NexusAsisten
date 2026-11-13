@@ -78,6 +78,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     val root = FrameLayout(ctx)
     private val scrim = View(ctx)
     private var card: FrameLayout? = null
+    private var dome: DomeDrawable? = null
     private var origin: View? = null
     private lateinit var pager: SnapPager
     private lateinit var tabIndicator: View
@@ -103,10 +104,17 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
 
     init {
         scrim.background = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#A6000000"), Color.parseColor("#E6000000"))
+            GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#1A000000"), Color.parseColor("#59000000"))
         )
         scrim.setOnClickListener { host.close() }
         root.addView(scrim, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
+
+    init {
+        root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {}
+            override fun onViewDetachedFromWindow(v: View) { dome?.stop() }
+        })
     }
 
     @Suppress("DEPRECATION")
@@ -180,9 +188,9 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         val rho: Int
         val s: Int
         if (land) {
-            a = min(w / 2 - ctx.dp(12), ctx.dp(340))
-            val total = min(h - bottomM - ctx.dp(10), ctx.dp(400))
-            rho = min(ctx.dp(150), total / 2)
+            a = min(w / 2 - ctx.dp(16), ctx.dp(300))
+            val total = min(h - bottomM - ctx.dp(20), ctx.dp(330))
+            rho = min(ctx.dp(140), (total * 0.46f).toInt())
             s = total - rho
         } else {
             a = w / 2 - ctx.dp(6)
@@ -193,7 +201,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         }
         val total = rho + s
         val frame = FrameLayout(ctx)
-        frame.background = DomeDrawable(a.toFloat(), rho.toFloat(), s.toFloat(), ctx.dpf(34f), ctx.dpf(24f), ctx.dpf(1f))
+        frame.background = DomeDrawable(a.toFloat(), rho.toFloat(), s.toFloat(), ctx.dpf(30f), ctx.dpf(24f), ctx.dpf(1f)).also { dome = it }
         frame.isClickable = true
         buildDome(frame, land, a, rho, s)
         root.addView(frame, FrameLayout.LayoutParams(2 * a, total, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also {
@@ -221,8 +229,8 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
             ArcItem(R.drawable.ic_monitor, "Jendela", null) { pager.snapTo(2) }
         )
         val n = items.size
-        val ra = a - ctx.dpf(34f)
-        val rb = rho - ctx.dpf(34f)
+        val ra = a - ctx.dpf(30f)
+        val rb = rho - ctx.dpf(30f)
         val steps = 360
         val xs = FloatArray(steps + 1)
         val ys = FloatArray(steps + 1)
@@ -234,9 +242,9 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
             if (k > 0) cum[k] = cum[k - 1] + hypot(xs[k] - xs[k - 1], ys[k] - ys[k - 1])
         }
         val len = cum[steps]
-        val bw = ctx.dp(64)
-        val bh = ctx.dp(76)
-        val cy0 = ctx.dp(26)
+        val bw = ctx.dp(60)
+        val bh = ctx.dp(64)
+        val cy0 = ctx.dp(23)
         items.forEachIndexed { i, item ->
             val target = len * (i + 0.5f) / n
             var k = 1
@@ -256,20 +264,20 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         if (land) {
             val row = ctx.hbox()
             row.gravity = Gravity.CENTER
-            val ping = statBlock("Ping", NX.TEXT, 15f)
-            val temp = statBlock("Suhu", NX.WARN, 15f)
-            val fps = statBlock("FPS", NX.CYAN, 30f)
-            val bat = statBlock("Baterai", NX.GOOD, 15f)
-            val ses = statBlock("Sesi", NX.TEXT2, 15f)
+            val ping = statBlock("Ping", NX.TEXT, 14f)
+            val temp = statBlock("Suhu", NX.WARN, 14f)
+            val fps = statBlock("FPS", NX.CYAN, 28f)
+            val bat = statBlock("Baterai", NX.GOOD, 14f)
+            val ses = statBlock("Sesi", NX.TEXT2, 14f)
             tvPing = ping.second; tvTemp = temp.second; tvFps = fps.second; tvBat = bat.second; tvSessionHero = ses.second
             listOf(ping, temp, fps, bat, ses).forEachIndexed { idx, b ->
-                row.add(b.first, ctx.dp(if (idx == 2) 96 else 70), WRAP)
+                row.add(b.first, ctx.dp(if (idx == 2) 84 else 58), WRAP)
             }
-            frame.addView(row, FrameLayout.LayoutParams(ctx.dp(376), WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
-                it.topMargin = ctx.dp(102)
+            frame.addView(row, FrameLayout.LayoutParams(ctx.dp(316), WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
+                it.topMargin = ctx.dp(87)
             })
         } else {
-            val fps = statBlock("FPS", NX.CYAN, 38f)
+            val fps = statBlock("FPS", NX.CYAN, 36f)
             tvFps = fps.second
             frame.addView(fps.first, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
                 it.topMargin = rho - ctx.dp(84)
@@ -288,18 +296,18 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
 
         // --- Tab + tombol tutup ---
         val cw = fw - ctx.dp(32)
-        val tabsW = min(cw - ctx.dp(52), ctx.dp(440))
+        val tabsW = min(cw - ctx.dp(52), ctx.dp(400))
         tabW = tabsW / tabNames.size
-        val tabsTop = rho + if (land) ctx.dp(6) else ctx.dp(52)
+        val tabsTop = rho + if (land) ctx.dp(4) else ctx.dp(52)
         val head = ctx.vbox()
         val tabsRow = ctx.hbox()
         tabsRow.gravity = Gravity.CENTER_VERTICAL
         tabNames.forEachIndexed { i, nm ->
-            val t = ctx.tv(nm, 12f, NX.MUTED, 700)
+            val t = ctx.tv(nm, 11.5f, NX.MUTED, 700)
             t.isAllCaps = true
             t.letterSpacing = 0.1f
             t.gravity = Gravity.CENTER
-            t.setPadding(0, ctx.dp(9), 0, ctx.dp(7))
+            t.setPadding(0, ctx.dp(7), 0, ctx.dp(6))
             t.setOnClickListener { pager.snapTo(i) }
             t.pressFx(0.94f)
             tabLabels.add(t)
@@ -323,8 +331,8 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         })
 
         // --- Halaman (geser kiri-kanan) ---
-        val pagerTop = tabsTop + ctx.dp(50)
-        val pageH = max(total - pagerTop - ctx.dp(14), ctx.dp(80))
+        val pagerTop = tabsTop + ctx.dp(40)
+        val pageH = max(total - pagerTop - ctx.dp(10), ctx.dp(80))
         pager = SnapPager(ctx) { pos -> onPagePos(pos) }
         pager.pageW = cw
         pager.count = tabNames.size
@@ -363,12 +371,12 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         val col = ctx.vbox()
         col.gravity = Gravity.CENTER_HORIZONTAL
         val disc = FrameLayout(ctx)
-        disc.addView(ctx.icon(item.icon, NX.TEXT, 22), FrameLayout.LayoutParams(ctx.dp(22), ctx.dp(22), Gravity.CENTER))
-        col.add(disc, ctx.dp(52), ctx.dp(52))
-        val label = ctx.tv(item.label, 10f, NX.TEXT2, 500)
+        disc.addView(ctx.icon(item.icon, NX.TEXT, 20), FrameLayout.LayoutParams(ctx.dp(20), ctx.dp(20), Gravity.CENTER))
+        col.add(disc, ctx.dp(46), ctx.dp(46))
+        val label = ctx.tv(item.label, 9.5f, NX.TEXT2, 500)
         label.gravity = Gravity.CENTER
         label.maxLines = 1
-        col.add(label, WRAP, WRAP, 0f, 0, 5, 0, 0)
+        col.add(label, MATCH, WRAP, 0f, 0, 3, 0, 0)
         styleArc(col, item.state?.invoke() ?: false)
         col.setOnClickListener {
             item.onClick()
@@ -384,7 +392,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
 
     private fun styleArc(v: LinearLayout, active: Boolean) {
         val disc = v.getChildAt(0) as FrameLayout
-        val r = ctx.dpf(26f)
+        val r = ctx.dpf(23f)
         disc.background = if (active)
             GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(NX.ACCENT_DEEP, NX.BLUE)).also {
                 it.shape = GradientDrawable.OVAL
@@ -398,6 +406,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
 
     // ---------- Animasi ----------
     private fun playIn() {
+        dome?.start()
         scrim.alpha = 0f
         scrim.animate().alpha(1f).setDuration(240).start()
         card?.let { c ->
@@ -457,6 +466,8 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     private fun scrollPage(): Pair<ScrollView, LinearLayout> {
         val sv = ScrollView(ctx)
         sv.isVerticalScrollBarEnabled = false
+        sv.isVerticalFadingEdgeEnabled = true
+        sv.setFadingEdgeLength(ctx.dp(22))
         val col = ctx.vbox(12, 8)
         sv.addView(col)
         return Pair(sv, col)
@@ -468,8 +479,11 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         val b = ctx.vbox()
         b.gravity = Gravity.CENTER_HORIZONTAL
         val v = ctx.tv("--", sizeSp, color, 700)
-        b.addView(ctx.tv(label, 9.5f, NX.MUTED, 700).also { it.isAllCaps = true; it.letterSpacing = 0.12f })
-        b.add(v, WRAP, WRAP, 0f, 0, 1, 0, 0)
+        v.gravity = Gravity.CENTER
+        val l = ctx.tv(label, 9.5f, NX.MUTED, 700).also { it.isAllCaps = true; it.letterSpacing = 0.12f }
+        l.gravity = Gravity.CENTER
+        b.add(l, MATCH, WRAP)
+        b.add(v, MATCH, WRAP, 0f, 0, 1, 0, 0)
         if (sizeSp >= 28f) v.glow(color, 8f)
         return Pair(b, v)
     }

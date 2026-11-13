@@ -65,6 +65,9 @@ class ScreenCaptureService : Service() {
         val FPS_OPTIONS = listOf(30, 60, 90, 120, 200)
 
         @Volatile var ready = false
+        /** Alasan gagal terakhir (ditampilkan di bar rekam, bukan hilang diam-diam). */
+        @Volatile var lastError: String? = null
+        @Volatile var lastErrorAt = 0L
         @Volatile var recording = false
         @Volatile var paused = false
         @Volatile private var startAt = 0L
@@ -79,6 +82,11 @@ class ScreenCaptureService : Service() {
             if (!recording) return 0L
             val end = if (paused) pauseAt else SystemClock.elapsedRealtime()
             return (end - startAt - pausedTotal).coerceAtLeast(0L)
+        }
+
+        fun fail(msg: String) {
+            lastError = msg
+            lastErrorAt = System.currentTimeMillis()
         }
 
         fun send(ctx: Context, action: String) {
@@ -143,6 +151,7 @@ class ScreenCaptureService : Service() {
             ready = true
             refreshNotification()
         } catch (e: Exception) {
+            fail("Gagal memulai tangkap layar: ${e.javaClass.simpleName} ${e.message ?: ""}".trim())
             toast("Gagal memulai tangkap layar")
             endSession()
             return
@@ -160,6 +169,7 @@ class ScreenCaptureService : Service() {
 
     private fun onProjectionStopped() {
         if (ending) return
+        if (recording) fail("Rekaman dihentikan: izin perekaman layar dicabut sistem")
         ready = false
         endSession()
     }
@@ -325,6 +335,7 @@ class ScreenCaptureService : Service() {
     private fun startRecording() {
         val v = vd
         if (!ready || v == null || recording) return
+        lastError = null
         if (shooting) { toast("Tunggu cuplikan selesai"); return }
         val m = realMetrics()
         val wantFps = Prefs.recordFps.let { if (it in FPS_OPTIONS) it else 30 }
@@ -346,6 +357,7 @@ class ScreenCaptureService : Service() {
             }
             res++
         }
+        fail("Perekaman gagal dimulai: encoder HP menolak semua kombinasi resolusi/fps")
         toast("Perekaman gagal dimulai")
         recording = false
         refreshNotification()
@@ -455,6 +467,7 @@ class ScreenCaptureService : Service() {
                 toast("Rekaman disimpan di Album Nexus")
             } else {
                 contentResolver.delete(uri, null, null)
+                fail("Rekaman terlalu pendek atau encoder error, tidak disimpan")
                 toast("Rekaman terlalu pendek, tidak disimpan")
             }
         }
