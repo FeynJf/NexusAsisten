@@ -100,21 +100,10 @@ class SettingsActivity : AppCompatActivity() {
             box.add(chipRow(listOf("Kecil", "Sedang", "Besar"), Prefs.floatSize) { Prefs.floatSize = it }, t = 10, b = 6)
             val ok = GameUtils.freeformSupported(this)
             box.add(tv(
-                if (ok) "Mode jendela aktif di HP ini."
-                else "Mode jendela belum aktif di HP ini. Tidak perlu izin apa pun: aplikasi dibuka di atas game dan gelembung Nexus muncul untuk kembali ke game dengan satu ketukan.",
+                if (ok) "Jendela aplikasi asli aktif di HP ini."
+                else "Jendela aplikasi asli tidak tersedia di HP ini, dan itu tidak apa-apa: pakai Jendela mini bawaan Nexus (tab Aplikasi di overlay) yang mengambang tanpa izin tambahan. Aplikasi lain dibuka cepat dengan gelembung kembali ke game.",
                 12.5f, if (ok) NX.GOOD else NX.TEXT2
             ), t = 8)
-            if (!ok) {
-                box.add(tv("Opsional, untuk jendela mengambang sungguhan (butuh pengaturan HP, bukan izin aplikasi):", 12f, NX.MUTED), t = 12)
-                box.add(tv("Opsi Pengembang → \"Aktifkan jendela freeform\" / \"Aktifkan jendela bentuk bebas\", lalu \"Paksa aktivitas agar dapat diubah ukurannya\". Restart HP. Jika Opsi Pengembang belum ada: Tentang ponsel → ketuk Nomor build 7 kali.", 12f, NX.TEXT2), t = 6)
-                box.add(ghostButton("Buka Opsi Pengembang") { Perms.openDevOptions(this) }, t = 10)
-                box.add(ghostButton("Salin perintah ADB") {
-                    copyText("adb", "adb shell settings put global enable_freeform_support 1\nadb shell settings put global force_resizable_activities 1")
-                }, t = 8)
-                if (Perms.secure(this)) box.add(gradientButton("Aktifkan sekarang") {
-                    Fx.say(this, if (GameUtils.enableFreeform(this)) "Aktif. Restart HP untuk menerapkan." else "Gagal mengaktifkan", Fx.OK)
-                }, t = 8)
-            }
             c.add(divider(), MATCH, 1, 0f, 16, 0, 16, 0)
             c.addView(box)
         }

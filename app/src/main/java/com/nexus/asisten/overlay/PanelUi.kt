@@ -11,10 +11,11 @@ import android.view.WindowManager
 import android.media.AudioManager
 import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.VelocityTracker
 import android.view.View
-import android.view.animation.AccelerateInterpolator
-import android.view.animation.DecelerateInterpolator
-import android.view.animation.OvershootInterpolator
+import android.view.ViewOutlineProvider
+import android.view.ViewTreeObserver
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -28,9 +29,6 @@ import com.nexus.asisten.data.GameProfile
 import com.nexus.asisten.data.GameRepo
 import com.nexus.asisten.data.Prefs
 import com.nexus.asisten.ui.*
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -68,29 +66,36 @@ interface PanelHost {
     fun relayout()
     fun floatSupported(): Boolean
     fun openFloatHelp()
+    fun gameIcon(): Drawable?
+    fun openMiniWindow(index: Int)
 }
 
 /**
- * Overlay Nexus Gamer: geser dari bawah-tengah. SATU panel kubah 180°: tombol aksi cepat berjajar di
- * sepanjang busur, HUD (FPS, ping, suhu, baterai) di dalam busur, lalu tab dan halaman geser di bawahnya.
+ * Overlay Nexus 1.9 "Obsidian Aurora": kartu kaca melayang yang naik dari bawah.
+ * Susunan (potret): pegangan seret, header game + LIVE, HUD (kartu FPS dengan grafik + 4 chip), baris aksi cepat,
+ * tab kapsul geser, lalu halaman. Landscape: dua kolom (HUD + aksi di kiri, tab + halaman di kanan).
+ * Tarik header/pegangan ke bawah untuk menutup.
  */
 class PanelUi(private val ctx: Context, private val host: PanelHost) {
     val root = FrameLayout(ctx)
     private val scrim = View(ctx)
     private var card: FrameLayout? = null
-    private var dome: DomeDrawable? = null
-    private var origin: View? = null
+    private var sheet: SheetDrawable? = null
     private lateinit var pager: SnapPager
-    private lateinit var tabIndicator: View
+    private lateinit var tabPill: View
     private val tabLabels = ArrayList<TextView>()
     private val pageFrames = ArrayList<FrameLayout>()
-    private val arcBtns = ArrayList<View>()
-    private val arcOffsets = ArrayList<Pair<Float, Float>>()
+    private val sections = ArrayList<View>()
+    private val quickBtns = ArrayList<View>()
     private var laidOut = false
+    private var played = false
     private var lastNear = -1
     private var closing = false
     private var introRun: MutableList<Motion.Handle>? = null
+    private var pulse: Motion.Loop? = null
+    private var liveDot: View? = null
     private var tabW = 0
+    private var cardH = 0
 
     private var tvFps: TextView? = null
     private var tvPing: TextView? = null
@@ -98,6 +103,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     private var tvBat: TextView? = null
     private var tvSession: TextView? = null
     private var tvSessionHero: TextView? = null
+    private var spark: SparkView? = null
 
     private val tabNames = listOf("Performa", "Alat", "Aplikasi", "Saya")
     private val selfAnnounced = setOf("Cegah salah sentuh", "Mode Fokus")
@@ -106,23 +112,21 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
 
     init {
         val shade = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#26000000"), Color.parseColor("#8C04050E"))
+            GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#1A000000"), Color.parseColor("#A604050E"))
         )
         val rise = GradientDrawable().apply {
             gradientType = GradientDrawable.RADIAL_GRADIENT
             setGradientCenter(0.5f, 1.0f)
-            gradientRadius = 520f * ctx.resources.displayMetrics.density
-            colors = intArrayOf(withAlpha(NX.ACCENT, 0x5A), withAlpha(NX.CYAN, 0x16), 0)
+            gradientRadius = 480f * ctx.resources.displayMetrics.density
+            colors = intArrayOf(withAlpha(NX.ACCENT, 0x4A), withAlpha(NX.CYAN, 0x14), 0)
         }
         scrim.background = android.graphics.drawable.LayerDrawable(arrayOf(shade, rise))
         scrim.setOnClickListener { host.close() }
         root.addView(scrim, FrameLayout.LayoutParams(MATCH, MATCH))
-    }
 
-    init {
         root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {}
-            override fun onViewDetachedFromWindow(v: View) { dome?.stop() }
+            override fun onViewDetachedFromWindow(v: View) { sheet?.stop(); pulse?.cancel(); pulse = null }
         })
     }
 
@@ -140,27 +144,40 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     }
 
     /**
-     * Dipanggil setelah window panel ditambahkan. Tampilan dibangun langsung dari ukuran layar (tidak menunggu
-     * callback layout, yang membuat panel kadang hanya berisi lapisan gelap). Bila ada yang gagal, pesan
-     * errornya ditampilkan di layar supaya bisa dilaporkan, bukan layar hitam kosong.
+     * Bangun seluruh tampilan SEBELUM jendela ditambahkan ke layar. Dengan begitu pekerjaan berat (membuat view,
+     * mengukur) selesai lebih dulu dan animasi masuk tidak ikut tersendat/terpotong di frame pertama.
      */
-    fun start() {
+    fun build() {
+        if (laidOut) return
         val (w, h) = screenSize()
         try {
             layoutUi(w, h)
             laidOut = true
-            playIn()
         } catch (e: Throwable) {
             showError(e)
         }
-        // Jaring pengaman: kalau animasi masuk tidak berjalan (animasi dimatikan/dihemat sistem), paksa tampil.
-        root.postDelayed({ ensureVisible() }, 1700)
+    }
+
+    /** Dipanggil setelah window ditambahkan: animasi baru mulai tepat setelah frame pertama tergambar. */
+    fun start() {
+        if (!laidOut) build()
+        if (card != null) {
+            root.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnPreDrawListener(this)
+                    root.post { playIn() }
+                    return true
+                }
+            })
+        }
+        // Jaring pengaman: kalau animasi masuk tidak jalan, paksa tampil.
+        root.postDelayed({ ensureVisible() }, 1900)
     }
 
     private fun showError(e: Throwable) {
         root.removeAllViews()
-        arcBtns.clear(); arcOffsets.clear(); pageFrames.clear(); tabLabels.clear()
-        card = null; origin = null
+        sections.clear(); quickBtns.clear(); pageFrames.clear(); tabLabels.clear()
+        card = null
         scrim.alpha = 1f
         root.addView(scrim, FrameLayout.LayoutParams(MATCH, MATCH))
         val where = e.stackTrace.take(3).joinToString("\n") { "${it.fileName}:${it.lineNumber}" }
@@ -184,170 +201,223 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         }
         introRun?.forEach { it.cancel() }
         introRun = null
-        dome?.intro = 1f
+        sheet?.intro = 1f
         card?.let { fix(it) }
-        arcBtns.forEach { fix(it) }
-        origin?.let { fix(it); it.rotation = 0f }
-        pageFrames.getOrNull(0)?.let { f -> ((f.getChildAt(0) as? ScrollView)?.getChildAt(0) as? LinearLayout)?.let { col ->
+        sections.forEach { fix(it) }
+        quickBtns.forEach { fix(it) }
+        pageFrames.getOrNull(lastNear.coerceAtLeast(0))?.let { f -> ((f.getChildAt(0) as? ScrollView)?.getChildAt(0) as? LinearLayout)?.let { col ->
             for (i in 0 until col.childCount) fix(col.getChildAt(i))
         } }
         if (scrim.alpha < 0.99f) { scrim.animate().cancel(); scrim.alpha = 1f }
+        sheet?.start()
+        startPulse()
     }
 
-    // ---------- Tata letak: SATU panel kubah 180° ----------
+    // ---------- Tata letak ----------
     private fun layoutUi(w: Int, h: Int) {
         val land = w > h
+        val margin = ctx.dp(8)
+        val navB = if (land) 0 else ctx.navInset()
         val status = if (land) 0 else ctx.statusInset()
-        val bottomM = if (land) ctx.dp(8) else ctx.navInset() + ctx.dp(8)
-        val a: Int
-        val rho: Int
-        val s: Int
+        val sheetW: Int
+        val sheetH: Int
         if (land) {
-            a = min(w / 2 - ctx.dp(16), ctx.dp(300))
-            val total = min(h - bottomM - ctx.dp(20), ctx.dp(330))
-            rho = min(ctx.dp(140), (total * 0.46f).toInt())
-            s = total - rho
+            sheetW = min(w - 2 * margin, ctx.dp(780))
+            sheetH = min(h - 2 * margin, ctx.dp(336))
         } else {
-            a = w / 2 - ctx.dp(6)
-            rho = a
-            val avail = h - status - bottomM - ctx.dp(16)
-            val total = min((avail * 0.88f).toInt(), ctx.dp(660))
-            s = max(total - rho, ctx.dp(300))
+            sheetW = min(w - 2 * margin, ctx.dp(520))
+            sheetH = min(((h - status - navB - ctx.dp(24)) * 0.9f).toInt(), ctx.dp(640))
         }
-        val total = rho + s
+        val padH = ctx.dp(16)
         val frame = FrameLayout(ctx)
-        frame.background = DomeDrawable(a.toFloat(), rho.toFloat(), s.toFloat(), ctx.dpf(30f), ctx.dpf(24f), ctx.dpf(1f)).also { dome = it }
+        frame.background = SheetDrawable(ctx.dpf(28f), ctx.dpf(1f)).also { sheet = it }
         frame.isClickable = true
-        buildDome(frame, land, a, rho, s)
-        root.addView(frame, FrameLayout.LayoutParams(2 * a, total, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also {
-            it.bottomMargin = bottomM
+
+        val body = LinearLayout(ctx)
+        body.setPadding(padH, ctx.dp(20), padH, ctx.dp(12))
+        val innerW = sheetW - 2 * padH
+        if (land) {
+            body.orientation = LinearLayout.HORIZONTAL
+            val gap = ctx.dp(14)
+            val leftW = ((innerW - gap) * 0.44f).toInt()
+            val rightW = innerW - gap - leftW
+            val left = ctx.vbox()
+            val header = buildHeader()
+            val hud = buildHud(true)
+            val actions = buildActions()
+            left.add(header, MATCH, ctx.dp(44))
+            left.add(hud, MATCH, ctx.dp(88), 0f, 0, 10, 0, 0)
+            left.add(actions, MATCH, WRAP, 0f, 0, 12, 0, 0)
+            sections += listOf(header, hud, actions)
+            val right = ctx.vbox()
+            val tabs = buildTabs(rightW)
+            right.add(tabs, MATCH, ctx.dp(40))
+            sections += tabs
+            right.add(buildPager(rightW), MATCH, 0, 1f, 0, 6, 0, 0)
+            body.add(left, leftW, MATCH, 0f, 0, 0, 14, 0)
+            body.add(right, 0, MATCH, 1f)
+            attachDrag(header)
+        } else {
+            body.orientation = LinearLayout.VERTICAL
+            val header = buildHeader()
+            val hud = buildHud(false)
+            val actions = buildActions()
+            val tabs = buildTabs(innerW)
+            body.add(header, MATCH, ctx.dp(44))
+            body.add(hud, MATCH, ctx.dp(96), 0f, 0, 12, 0, 0)
+            body.add(actions, MATCH, WRAP, 0f, 0, 14, 0, 0)
+            body.add(tabs, MATCH, ctx.dp(40), 0f, 0, 14, 0, 0)
+            body.add(buildPager(innerW), MATCH, 0, 1f, 0, 6, 0, 0)
+            sections += listOf(header, hud, actions, tabs)
+            attachDrag(header)
+        }
+        frame.addView(body, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        // Zona seret di puncak (pegangan).
+        val grab = View(ctx)
+        frame.addView(grab, FrameLayout.LayoutParams(MATCH, ctx.dp(22), Gravity.TOP))
+        attachDrag(grab)
+
+        val bm = margin + navB
+        root.addView(frame, FrameLayout.LayoutParams(sheetW, sheetH, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also {
+            it.bottomMargin = bm
         })
-        frame.pivotX = a.toFloat()
-        frame.pivotY = total.toFloat()
+        frame.pivotX = sheetW / 2f
+        frame.pivotY = sheetH.toFloat()
+        cardH = sheetH + bm
         card = frame
+        onPagePos(0f)
+
+        // Keadaan awal animasi: sudah tersembunyi sebelum jendela pertama kali digambar (tanpa kedipan).
+        frame.alpha = 0f
+        frame.translationY = (cardH + ctx.dp(24)).toFloat()
+        scrim.alpha = 0f
+        sections.forEach { it.alpha = 0f; it.translationY = ctx.dpf(18f) }
+        quickBtns.forEach { it.alpha = 0f; it.scaleX = 0.6f; it.scaleY = 0.6f }
     }
 
-    private fun buildDome(frame: FrameLayout, land: Boolean, a: Int, rho: Int, s: Int) {
-        val total = rho + s
-        val fw = 2 * a
-        val cx = a.toFloat()
-        val cy = rho.toFloat()
+    private fun buildHeader(): LinearLayout {
+        val row = ctx.hbox()
+        val iconBox = FrameLayout(ctx)
+        iconBox.setPadding(ctx.dp(2), ctx.dp(2), ctx.dp(2), ctx.dp(2))
+        iconBox.background = rounded(0, ctx.dpf(15f), withAlpha(NX.CYAN, 0x99), ctx.dp(1))
+        val iv = ImageView(ctx)
+        val gi = host.gameIcon()
+        if (gi != null) iv.setImageDrawable(gi) else { iv.setImageResource(R.drawable.ic_gamepad); iv.setColorFilter(NX.CYAN); iv.setPadding(ctx.dp(8), ctx.dp(8), ctx.dp(8), ctx.dp(8)) }
+        iv.scaleType = ImageView.ScaleType.CENTER_CROP
+        iv.background = rounded(NX.SURFACE2, ctx.dpf(13f))
+        iv.clipToOutline = true
+        iv.outlineProvider = ViewOutlineProvider.BACKGROUND
+        iconBox.addView(iv, FrameLayout.LayoutParams(MATCH, MATCH))
+        row.add(iconBox, ctx.dp(44), ctx.dp(44), 0f, 0, 0, 12, 0)
 
-        // --- Tombol aksi cepat berjajar rata sepanjang busur 180° ---
+        val names = ctx.vbox()
+        val name = ctx.tv(host.gameName, 16.5f, NX.TEXT, 700)
+        name.maxLines = 1
+        name.ellipsize = android.text.TextUtils.TruncateAt.END
+        names.addView(name)
+        names.add(ctx.tv("Asisten Game aktif", 11f, NX.MUTED, 500), t = 1)
+        row.add(names, 0, WRAP, 1f)
+
+        val live = ctx.hbox()
+        live.setPadding(ctx.dp(9), ctx.dp(4), ctx.dp(10), ctx.dp(4))
+        live.background = rounded(withAlpha(NX.GOOD, 0x22), ctx.dpf(11f), withAlpha(NX.GOOD, 0x77), 1)
+        val dot = View(ctx)
+        dot.background = circle(NX.GOOD)
+        liveDot = dot
+        live.add(dot, ctx.dp(6), ctx.dp(6), 0f, 0, 0, 6, 0)
+        live.addView(ctx.tv("LIVE", 10f, NX.GOOD, 700).also { it.letterSpacing = 0.14f })
+        row.add(live, WRAP, WRAP, 0f, 0, 0, 10, 0)
+
+        val close = FrameLayout(ctx)
+        close.background = NeonDrawable(Color.parseColor("#F0141A2E"), Color.parseColor("#F00A0D18"), ctx.dpf(17f))
+        close.addView(ctx.icon(R.drawable.ic_close, NX.TEXT, 16), FrameLayout.LayoutParams(ctx.dp(16), ctx.dp(16), Gravity.CENTER))
+        close.setOnClickListener { host.close() }
+        close.pressFx(0.9f)
+        row.add(close, ctx.dp(34), ctx.dp(34))
+        return row
+    }
+
+    private fun buildHud(land: Boolean): LinearLayout {
+        val row = ctx.hbox(false)
+        val fpsCard = ctx.vbox(12, 8)
+        fpsCard.background = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR, intArrayOf(withAlpha(NX.CYAN, 0x2A), withAlpha(NX.ACCENT, 0x16))
+        ).also { it.cornerRadius = ctx.dpf(18f); it.setStroke(ctx.dp(1), withAlpha(NX.CYAN, 0x88)) }
+        fpsCard.addView(ctx.tv("FPS", 9.5f, NX.CYAN, 700).also { it.letterSpacing = 0.16f })
+        val fps = ctx.tv("--", if (land) 30f else 38f, NX.TEXT, 700)
+        fps.setShadowLayer(ctx.dpf(10f), 0f, 0f, NX.CYAN)
+        tvFps = fps
+        fpsCard.add(fps, WRAP, WRAP)
+        val sp = SparkView(ctx)
+        spark = sp
+        fpsCard.add(sp, MATCH, 0, 1f, 0, 2, 0, 0)
+        row.add(fpsCard, 0, MATCH, 1.15f, 0, 0, 8, 0)
+
+        val grid = ctx.vbox()
+        val ping = statChip("Ping", NX.TEXT)
+        val temp = statChip("Suhu", NX.WARN)
+        val bat = statChip("Baterai", NX.GOOD)
+        val ses = statChip("Sesi", NX.TEXT2)
+        tvPing = ping.second; tvTemp = temp.second; tvBat = bat.second; tvSessionHero = ses.second
+        val r1 = ctx.hbox(false)
+        r1.add(ping.first, 0, MATCH, 1f, 0, 0, 8, 0)
+        r1.add(temp.first, 0, MATCH, 1f)
+        val r2 = ctx.hbox(false)
+        r2.add(bat.first, 0, MATCH, 1f, 0, 0, 8, 0)
+        r2.add(ses.first, 0, MATCH, 1f)
+        grid.add(r1, MATCH, 0, 1f, 0, 0, 0, 8)
+        grid.add(r2, MATCH, 0, 1f)
+        row.add(grid, 0, MATCH, 1.85f)
+        return row
+    }
+
+    private fun buildActions(): LinearLayout {
         val items = listOf(
             ArcItem(R.drawable.ic_bolt, "Boost", null) { host.boost() },
             ArcItem(R.drawable.ic_scissors, "Cuplikan", null) { host.screenshot() },
             ArcItem(R.drawable.ic_video, "Rekam", { host.isRecording() }) { host.toggleRecord() },
             ArcItem(R.drawable.ic_bell, "Senyap", { Booster.dndOn(ctx) }) { host.setDnd(!Booster.dndOn(ctx)) },
             ArcItem(R.drawable.ic_crosshair, "Bidik", { Prefs.crosshair }) { host.setCrosshair(!Prefs.crosshair) },
-            ArcItem(R.drawable.ic_hand, "Kunci tepi", { Prefs.edgeGuard }) { host.setEdgeGuard(!Prefs.edgeGuard) },
-            ArcItem(R.drawable.ic_monitor, "Jendela", null) { pager.snapTo(2) }
+            ArcItem(R.drawable.ic_hand, "Kunci tepi", { Prefs.edgeGuard }) { host.setEdgeGuard(!Prefs.edgeGuard) }
         )
-        val n = items.size
-        val ra = a - ctx.dpf(30f)
-        val rb = rho - ctx.dpf(30f)
-        val steps = 360
-        val xs = FloatArray(steps + 1)
-        val ys = FloatArray(steps + 1)
-        val cum = FloatArray(steps + 1)
-        for (k in 0..steps) {
-            val th = PI - k * PI / steps
-            xs[k] = (ra * cos(th)).toFloat()
-            ys[k] = (rb * sin(th)).toFloat()
-            if (k > 0) cum[k] = cum[k - 1] + hypot(xs[k] - xs[k - 1], ys[k] - ys[k - 1])
-        }
-        val len = cum[steps]
-        val bw = ctx.dp(60)
-        val bh = ctx.dp(64)
-        val cy0 = ctx.dp(23)
-        items.forEachIndexed { i, item ->
-            val target = len * (i + 0.5f) / n
-            var k = 1
-            while (k < steps && cum[k] < target) k++
-            val px = cx + xs[k]
-            val py = cy - ys[k]
+        val row = ctx.hbox(false)
+        items.forEach { item ->
             val v = arcButton(item)
-            frame.addView(v, FrameLayout.LayoutParams(bw, bh, Gravity.TOP or Gravity.START).also { lp ->
-                lp.leftMargin = (px - bw / 2f).toInt()
-                lp.topMargin = (py - cy0).toInt()
-            })
-            arcBtns.add(v)
-            arcOffsets.add(Pair(cx - px, cy - py))
+            quickBtns.add(v)
+            row.add(v, 0, WRAP, 1f)
         }
+        return row
+    }
 
-        // --- HUD di dalam busur ---
-        if (land) {
-            val row = ctx.hbox()
-            row.gravity = Gravity.CENTER
-            val ping = statBlock("Ping", NX.TEXT, 14f)
-            val temp = statBlock("Suhu", NX.WARN, 14f)
-            val fps = statBlock("FPS", NX.CYAN, 28f)
-            val bat = statBlock("Baterai", NX.GOOD, 14f)
-            val ses = statBlock("Sesi", NX.TEXT2, 14f)
-            tvPing = ping.second; tvTemp = temp.second; tvFps = fps.second; tvBat = bat.second; tvSessionHero = ses.second
-            listOf(ping, temp, fps, bat, ses).forEachIndexed { idx, b ->
-                row.add(b.first, ctx.dp(if (idx == 2) 84 else 58), WRAP)
-            }
-            frame.addView(row, FrameLayout.LayoutParams(ctx.dp(316), WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
-                it.topMargin = ctx.dp(87)
-            })
-        } else {
-            val fps = statBlock("FPS", NX.CYAN, 36f)
-            tvFps = fps.second
-            frame.addView(fps.first, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
-                it.topMargin = rho - ctx.dp(84)
-            })
-            val row = ctx.hbox()
-            val ping = statBlock("Ping", NX.TEXT, 15f)
-            val temp = statBlock("Suhu", NX.WARN, 15f)
-            val bat = statBlock("Baterai", NX.GOOD, 15f)
-            val ses = statBlock("Sesi", NX.TEXT2, 15f)
-            tvPing = ping.second; tvTemp = temp.second; tvBat = bat.second; tvSessionHero = ses.second
-            listOf(ping, temp, bat, ses).forEach { row.add(it.first, 0, WRAP, 1f) }
-            frame.addView(row, FrameLayout.LayoutParams(fw - ctx.dp(32), WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
-                it.topMargin = rho + ctx.dp(2)
-            })
-        }
-
-        // --- Tab + tombol tutup ---
-        val cw = fw - ctx.dp(32)
-        val tabsW = min(cw - ctx.dp(52), ctx.dp(400))
-        tabW = tabsW / tabNames.size
-        val tabsTop = rho + if (land) ctx.dp(4) else ctx.dp(52)
-        val head = ctx.vbox()
-        val tabsRow = ctx.hbox()
-        tabsRow.gravity = Gravity.CENTER_VERTICAL
+    private fun buildTabs(innerW: Int): FrameLayout {
+        val pill = FrameLayout(ctx)
+        pill.background = rounded(withAlpha(Color.WHITE, 0x0E), ctx.dpf(20f), NX.LINE, 1)
+        tabW = (innerW - ctx.dp(8)) / tabNames.size
+        tabPill = View(ctx)
+        tabPill.background = GradientDrawable(
+            GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(withAlpha(NX.ACCENT_DEEP, 0xE6), withAlpha(NX.BLUE, 0xCC))
+        ).also { it.cornerRadius = ctx.dpf(16f); it.setStroke(ctx.dp(1), withAlpha(Color.WHITE, 0x44)) }
+        tabPill.glow(NX.ACCENT, 6f)
+        pill.addView(tabPill, FrameLayout.LayoutParams(tabW, ctx.dp(32), Gravity.CENTER_VERTICAL or Gravity.START).also { it.leftMargin = ctx.dp(4) })
+        val labels = ctx.hbox()
+        labels.setPadding(ctx.dp(4), 0, ctx.dp(4), 0)
         tabNames.forEachIndexed { i, nm ->
-            val t = ctx.tv(nm, 11.5f, NX.MUTED, 700)
+            val t = ctx.tv(nm, 11f, NX.MUTED, 700)
             t.isAllCaps = true
-            t.letterSpacing = 0.1f
+            t.letterSpacing = 0.08f
             t.gravity = Gravity.CENTER
-            t.setPadding(0, ctx.dp(7), 0, ctx.dp(6))
-            t.setOnClickListener { pager.snapTo(i) }
+            t.maxLines = 1
+            t.setOnClickListener { if (::pager.isInitialized) pager.snapTo(i) }
             t.pressFx(0.94f)
             tabLabels.add(t)
-            tabsRow.add(t, tabW, WRAP)
+            labels.add(t, tabW, ctx.dp(32))
         }
-        val close = FrameLayout(ctx)
-        close.background = NeonDrawable(Color.parseColor("#F0141A2E"), Color.parseColor("#F00A0D18"), ctx.dpf(17f))
-        close.addView(ctx.icon(R.drawable.ic_close, NX.TEXT, 16), FrameLayout.LayoutParams(ctx.dp(16), ctx.dp(16), Gravity.CENTER))
-        close.setOnClickListener { host.close() }
-        close.pressFx(0.9f)
-        tabsRow.add(close, ctx.dp(34), ctx.dp(34), 0f, 8, 0, 0, 0)
-        head.addView(tabsRow)
-        val indWrap = FrameLayout(ctx)
-        tabIndicator = View(ctx)
-        tabIndicator.background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(NX.ACCENT, NX.CYAN, NX.MAGENTA)).also { it.cornerRadius = ctx.dpf(2f) }
-        tabIndicator.glow(NX.CYAN, 8f)
-        indWrap.addView(tabIndicator, FrameLayout.LayoutParams(tabW - ctx.dp(28), ctx.dp(3)).also { it.leftMargin = ctx.dp(14) })
-        head.add(indWrap, tabsW, WRAP)
-        frame.addView(head, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
-            it.topMargin = tabsTop
-        })
+        pill.addView(labels, FrameLayout.LayoutParams(MATCH, MATCH))
+        return pill
+    }
 
-        // --- Halaman (geser kiri-kanan) ---
-        val pagerTop = tabsTop + ctx.dp(40)
-        val pageH = max(total - pagerTop - ctx.dp(10), ctx.dp(80))
+    private fun buildPager(cw: Int): SnapPager {
         pager = SnapPager(ctx) { pos -> onPagePos(pos) }
         pager.pageW = cw
         pager.count = tabNames.size
@@ -360,21 +430,18 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
             rebuildPage(i)
         }
         pager.addView(row, FrameLayout.LayoutParams(cw * tabNames.size, MATCH))
-        frame.addView(pager, FrameLayout.LayoutParams(cw, pageH, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
-            it.topMargin = pagerTop
-        })
-        onPagePos(0f)
+        return pager
     }
 
     private fun onPagePos(pos: Float) {
-        if (!::tabIndicator.isInitialized) return
-        tabIndicator.translationX = pos * tabW
+        if (!::tabPill.isInitialized) return
+        tabPill.translationX = pos * tabW
         val near = (pos + 0.5f).toInt().coerceIn(0, tabLabels.size - 1)
         if (near != lastNear) {
             if (lastNear >= 0 && laidOut) staggerPage(near, 60L)
             lastNear = near
         }
-        tabLabels.forEachIndexed { i, t -> t.setTextColor(if (i == near) NX.TEXT else NX.MUTED) }
+        tabLabels.forEachIndexed { i, t -> t.setTextColor(if (i == near) Color.WHITE else NX.MUTED) }
         pageFrames.forEachIndexed { i, f ->
             val d = min(1f, kotlin.math.abs(pos - i))
             f.alpha = 1f - 0.55f * d
@@ -383,7 +450,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         }
     }
 
-    // ---------- Busur 180° ----------
+    // ---------- Tombol aksi cepat ----------
     private class ArcItem(val icon: Int, val label: String, val state: (() -> Boolean)?, val onClick: () -> Unit)
 
     private fun arcButton(item: ArcItem): View {
@@ -395,7 +462,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         val label = ctx.tv(item.label, 9.5f, NX.TEXT2, 500)
         label.gravity = Gravity.CENTER
         label.maxLines = 1
-        col.add(label, MATCH, WRAP, 0f, 0, 3, 0, 0)
+        col.add(label, MATCH, WRAP, 0f, 0, 4, 0, 0)
         styleArc(col, item.state?.invoke() ?: false)
         col.setOnClickListener {
             item.onClick()
@@ -423,121 +490,132 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         (v.getChildAt(1) as TextView).setTextColor(if (active) NX.TEXT else NX.TEXT2)
     }
 
-    // ---------- Animasi (Motion: tidak tergantung skala animator sistem) ----------
-    private fun playIn() {
-        val runs = ArrayList<Motion.Handle>()
-        introRun = runs
-        dome?.intro = 0f
-        dome?.start()
-
-        // Latar gelap + cahaya neon naik dari bawah.
-        scrim.alpha = 0f
-        runs += Motion.run(320) { t -> scrim.alpha = Motion.outCubic(t) }
-
-        // Kubah: naik dari bawah dengan pegas, mengembang dari dasar-tengah, bingkai "menyala".
-        card?.let { c ->
-            val dy = ctx.dpf(150f)
-            c.alpha = 0f
-            c.translationY = dy
-            c.scaleX = 0.86f
-            c.scaleY = 0.86f
-            runs += Motion.run(760, 40) { t ->
-                val e = Motion.spring(t)
-                c.alpha = Motion.outCubic((t * 2.4f).coerceAtMost(1f))
-                c.translationY = dy * (1f - e)
-                val sc = 0.86f + 0.14f * e
-                c.scaleX = sc
-                c.scaleY = sc
+    // ---------- Tarik ke bawah untuk menutup ----------
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun attachDrag(v: View) {
+        var startY = 0f
+        var dragging = false
+        var vt: VelocityTracker? = null
+        v.setOnTouchListener { _, e ->
+            val c = card
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startY = e.rawY; dragging = false
+                    vt?.recycle(); vt = VelocityTracker.obtain(); vt?.addMovement(e)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    vt?.addMovement(e)
+                    val dy = e.rawY - startY
+                    if (!dragging && dy > ctx.dp(6)) dragging = true
+                    if (dragging && c != null && !closing) {
+                        introRun?.forEach { it.cancel() }
+                        introRun = null
+                        c.alpha = 1f
+                        c.translationY = if (dy > 0) dy else dy * 0.15f
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (dragging && c != null && !closing) {
+                        vt?.computeCurrentVelocity(1000)
+                        val vy = vt?.yVelocity ?: 0f
+                        if (e.actionMasked == MotionEvent.ACTION_UP && (c.translationY > cardH * 0.25f || vy > 1400f)) host.close()
+                        else {
+                            val y0 = c.translationY
+                            Motion.run(420) { t -> c.translationY = y0 * (1f - Motion.spring(t)) }
+                        }
+                    }
+                    vt?.recycle(); vt = null
+                    dragging = false
+                }
             }
-            runs += Motion.run(900, 120) { t -> dome?.intro = Motion.outExpo(t) }
-        }
-
-        // Tombol busur terbuka seperti kipas: meluncur dari titik pusat sepanjang busur.
-        arcBtns.forEachIndexed { i, b ->
-            val (dx, dy) = arcOffsets[i]
-            b.alpha = 0f
-            b.scaleX = 0.2f; b.scaleY = 0.2f
-            b.translationX = dx; b.translationY = dy
-            runs += Motion.run(680, 170L + i * 50L) { t ->
-                val e = Motion.spring(t)
-                b.translationX = dx * (1f - e)
-                b.translationY = dy * (1f - e)
-                val sc = 0.2f + 0.8f * e
-                b.scaleX = sc; b.scaleY = sc
-                b.alpha = Motion.outCubic((t * 2.6f).coerceAtMost(1f))
-            }
-        }
-
-        origin?.let { o ->
-            o.scaleX = 0f; o.scaleY = 0f; o.rotation = -90f
-            runs += Motion.run(480, 120) { t ->
-                val e = Motion.outBack(t, 1.9f)
-                o.scaleX = e; o.scaleY = e
-                o.rotation = -90f * (1f - Motion.outCubic(t))
-            }
-        }
-
-        // Angka FPS "pop" lalu isi halaman Performa masuk berurutan.
-        tvFps?.let { f ->
-            f.scaleX = 0.5f; f.scaleY = 0.5f; f.alpha = 0f
-            runs += Motion.run(520, 330) { t ->
-                val e = Motion.outBack(t, 2.2f)
-                f.scaleX = 0.5f + 0.5f * e; f.scaleY = 0.5f + 0.5f * e
-                f.alpha = Motion.outCubic(t)
-            }
-        }
-        staggerPage(0, 380L, runs)
-        tabLabels.forEachIndexed { i, tv ->
-            tv.alpha = 0f
-            runs += Motion.run(420, 260L + i * 45L) { t -> tv.alpha = Motion.outCubic(t) }
+            true
         }
     }
 
-    /** Anak-anak halaman [page] naik berurutan (dipanggil saat panel dibuka dan saat pindah tab). */
+    // ---------- Animasi (Motion: tidak tergantung skala animator sistem) ----------
+    private fun startPulse() {
+        if (pulse != null) return
+        val d = liveDot ?: return
+        pulse = Motion.loop(50) { ms -> d.alpha = 0.55f + 0.45f * sin(ms / 330f) }
+    }
+
+    private fun playIn() {
+        if (played || closing) return
+        played = true
+        val c = card ?: return
+        val runs = ArrayList<Motion.Handle>()
+        introRun = runs
+        sheet?.intro = 0f
+
+        // Latar gelap + cahaya naik dari bawah.
+        runs += Motion.run(420) { t -> scrim.alpha = Motion.smooth(t) }
+
+        // Kartu naik dari bawah: meluncur cepat lalu mendarat halus dengan sedikit pantulan.
+        val dy = (cardH + ctx.dp(24)).toFloat()
+        runs += Motion.run(640, 0, {
+            // Latar bergerak (aurora, kilat) baru dinyalakan setelah kartu mendarat supaya tidak membebani animasi masuk.
+            sheet?.start()
+            startPulse()
+        }) { t ->
+            val e = Motion.outBack(t, 0.9f)
+            c.alpha = Motion.outCubic((t * 3.2f).coerceAtMost(1f))
+            c.translationY = dy * (1f - e)
+            val sc = 0.94f + 0.06f * Motion.smooth(t)
+            c.scaleX = sc; c.scaleY = sc
+        }
+        runs += Motion.run(900, 360) { t -> sheet?.intro = Motion.outExpo(t) }
+
+        // Blok isi masuk berurutan dari bawah.
+        sections.forEachIndexed { i, v ->
+            runs += Motion.run(560, 140L + i * 70L) { t ->
+                v.alpha = Motion.outCubic(t)
+                v.translationY = ctx.dpf(18f) * (1f - Motion.smooth(t))
+            }
+        }
+        // Tombol aksi cepat "pop" satu per satu.
+        quickBtns.forEachIndexed { i, b ->
+            runs += Motion.run(620, 260L + i * 55L) { t ->
+                val e = Motion.spring(t)
+                val sc = 0.6f + 0.4f * e
+                b.scaleX = sc; b.scaleY = sc
+                b.alpha = Motion.outCubic((t * 3f).coerceAtMost(1f))
+            }
+        }
+        // Isi halaman pertama.
+        staggerPage(0, 420L, runs)
+    }
+
+    /** Anak-anak halaman [page] naik berurutan (saat panel dibuka dan saat pindah tab). */
     private fun staggerPage(page: Int, base: Long, runs: MutableList<Motion.Handle>? = null) {
         val col = (pageFrames.getOrNull(page)?.getChildAt(0) as? ScrollView)?.getChildAt(0) as? LinearLayout ?: return
-        val dy = ctx.dpf(22f)
+        val dy = ctx.dpf(20f)
         for (i in 0 until col.childCount) {
             val v = col.getChildAt(i)
             v.alpha = 0f
             v.translationY = dy
-            val h = Motion.run(520, base + i * 55L) { t ->
+            val h = Motion.run(520, base + i * 50L) { t ->
                 v.alpha = Motion.outCubic(t)
-                v.translationY = dy * (1f - Motion.outExpo(t))
+                v.translationY = dy * (1f - Motion.smooth(t))
             }
             runs?.add(h)
         }
     }
 
-    /** Animasi keluar: busur menguncup ke tengah, kubah turun & mengecil, lalu panggil [end]. */
+    /** Animasi keluar: kartu turun dan memudar, latar menghilang, lalu panggil [end]. */
     fun animateOut(end: () -> Unit) {
         closing = true
         introRun?.forEach { it.cancel() }
         introRun = null
-        val n = arcBtns.size
-        arcBtns.forEachIndexed { i, b ->
-            val (dx, dy) = arcOffsets[i]
-            val fa = b.alpha; val fx = b.translationX; val fy = b.translationY; val fs = b.scaleX
-            Motion.run(240, (n - 1 - i) * 18L) { t ->
-                val e = Motion.inCubic(t)
-                b.translationX = fx + (dx - fx) * e
-                b.translationY = fy + (dy - fy) * e
-                val sc = fs + (0.2f - fs) * e
-                b.scaleX = sc; b.scaleY = sc
-                b.alpha = fa * (1f - e)
-            }
-        }
-        origin?.let { o -> Motion.run(240) { t -> val e = 1f - Motion.inCubic(t); o.scaleX = e; o.scaleY = e; o.rotation = 90f * t } }
+        pulse?.cancel(); pulse = null
         card?.let { c ->
-            val dy = ctx.dpf(110f)
+            val dy = (cardH + ctx.dp(24)).toFloat()
             val a0 = c.alpha; val y0 = c.translationY
-            Motion.run(300, 40) { t ->
+            Motion.run(320) { t ->
                 val e = Motion.inCubic(t)
-                c.alpha = a0 * (1f - e)
+                c.alpha = a0 * (1f - Motion.inCubic((t - 0.35f).coerceAtLeast(0f) / 0.65f))
                 c.translationY = y0 + (dy - y0) * e
-                val sc = 1f - 0.08f * e
+                val sc = 1f - 0.05f * e
                 c.scaleX = sc; c.scaleY = sc
-                dome?.intro = 1f - e
             }
         }
         val s0 = scrim.alpha
@@ -572,21 +650,20 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(withAlpha(Color.WHITE, 0x16), withAlpha(Color.WHITE, 0x08)))
             .also { it.cornerRadius = ctx.dpf(radius); it.setStroke(ctx.dp(1), NX.LINE) }
 
-    private fun statBlock(label: String, color: Int, sizeSp: Float): Pair<LinearLayout, TextView> {
-        val b = ctx.vbox()
-        b.gravity = Gravity.CENTER_HORIZONTAL
-        val v = ctx.tv("--", sizeSp, color, 700)
-        v.gravity = Gravity.CENTER
-        val l = ctx.tv(label, 9.5f, NX.MUTED, 700).also { it.isAllCaps = true; it.letterSpacing = 0.12f }
-        l.gravity = Gravity.CENTER
-        b.add(l, MATCH, WRAP)
-        b.add(v, MATCH, WRAP, 0f, 0, 1, 0, 0)
-        if (sizeSp >= 28f) v.glow(color, 8f)
+    private fun statChip(label: String, color: Int): Pair<LinearLayout, TextView> {
+        val b = ctx.vbox(11, 6)
+        b.gravity = Gravity.CENTER_VERTICAL
+        b.background = glass(14f)
+        val l = ctx.tv(label, 9.5f, NX.MUTED, 700).also { it.isAllCaps = true; it.letterSpacing = 0.14f }
+        val v = ctx.tv("--", 16f, color, 700)
+        b.add(l, WRAP, WRAP)
+        b.add(v, WRAP, WRAP, 0f, 0, 1, 0, 0)
         return Pair(b, v)
     }
 
     fun update(fps: Int, exact: Boolean, ping: Int, temp: Float, bat: Int) {
         tvFps?.text = (if (exact) "" else "~") + fps
+        if (fps > 0) spark?.push(fps.toFloat())
         tvPing?.text = if (ping < 0) "--" else "$ping ms"
         tvTemp?.text = String.format("%.0f°", temp)
         tvTemp?.setTextColor(if (temp >= Prefs.tempWarn) NX.HOT else NX.WARN)
@@ -783,29 +860,18 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         col.addView(c)
     }
 
-    // ---------- Halaman Aplikasi (jendela mengambang) ----------
+    // ---------- Halaman Aplikasi: jendela mini bawaan + aplikasi saya ----------
     private fun pageAplikasi(): View {
         val (sv, col) = scrollPage()
-        col.add(ctx.sectionTitle("Cara membuka aplikasi"), b = 8)
-        col.add(ctx.chipRow(listOf("Jendela mengambang", "Layar penuh"), if (Prefs.floatingWindow) 0 else 1) {
-            Prefs.floatingWindow = it == 0
-        })
-        if (host.floatSupported() && Prefs.floatingWindow) {
-            col.add(ctx.sectionTitle("Ukuran jendela"), t = 14, b = 8)
-            col.add(ctx.chipRow(listOf("Kecil", "Sedang", "Besar"), Prefs.floatSize) { Prefs.floatSize = it })
-        } else {
-            // Tanpa izin atau pengaturan tambahan: aplikasi dibuka penuh, lalu gelembung Nexus membawa pulang ke game.
-            val tip = ctx.vbox(14, 12)
-            tip.background = GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(withAlpha(NX.CYAN, 0x26), withAlpha(NX.ACCENT, 0x1A))
-            ).also { it.cornerRadius = ctx.dpf(16f); it.setStroke(ctx.dp(1), withAlpha(NX.CYAN, 0x77)) }
-            tip.addView(ctx.tv("Tanpa izin tambahan", 12f, NX.CYAN, 700).also { it.isAllCaps = true; it.letterSpacing = 0.12f })
-            tip.add(ctx.tv("Aplikasi dibuka di atas game. Ketuk gelembung Nexus yang muncul untuk langsung kembali ke game.", 12.5f, NX.TEXT), t = 6)
-            val more = ctx.tv("Mau jendela mengambang sungguhan? Lihat caranya", 12f, NX.MUTED, 500)
-            more.setOnClickListener { host.openFloatHelp() }
-            more.pressFx(0.98f)
-            tip.add(more, t = 8)
-            col.add(tip, t = 14)
+        col.add(ctx.sectionTitle("Jendela mini"), b = 6)
+        col.add(ctx.tv("Mengambang di atas game, tanpa izin atau pengaturan tambahan. Seret judulnya untuk memindah, tarik sudut kanan-bawah untuk mengubah ukuran.", 11.5f, NX.MUTED), b = 10)
+        MiniWindow.SITES.chunked(2).forEachIndexed { r, pair ->
+            val row = ctx.hbox(false)
+            pair.forEachIndexed { k, s ->
+                row.add(siteCard(s.name) { host.openMiniWindow(r * 2 + k) }, 0, ctx.dp(52), 1f, 0, 0, if (k == 0) 8 else 0, 0)
+            }
+            if (pair.size == 1) row.add(View(ctx), 0, ctx.dp(52), 1f)
+            col.add(row, t = if (r == 0) 0 else 8)
         }
 
         col.add(ctx.sectionTitle("Aplikasi saya"), t = 18, b = 10)
@@ -832,8 +898,32 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
             col.add(row, t = if (i == 0) 0 else 12)
             i += 4
         }
-        col.add(ctx.tv("Ketuk aplikasi untuk membukanya tanpa menutup game.", 11.5f, NX.MUTED), t = 14, b = 10)
+
+        if (host.floatSupported()) {
+            // Hanya muncul bila HP memang mendukung jendela aplikasi asli (freeform): tanpa langkah tambahan.
+            col.add(ctx.sectionTitle("Cara membuka aplikasi"), t = 18, b = 8)
+            col.add(ctx.chipRow(listOf("Jendela mengambang", "Layar penuh"), if (Prefs.floatingWindow) 0 else 1) {
+                Prefs.floatingWindow = it == 0
+            })
+            if (Prefs.floatingWindow) {
+                col.add(ctx.chipRow(listOf("Kecil", "Sedang", "Besar"), Prefs.floatSize) { Prefs.floatSize = it }, t = 8)
+            }
+        } else {
+            col.add(ctx.tv("Aplikasi asli dibuka cepat di atas game. Ketuk gelembung Nexus yang muncul untuk kembali ke game.", 11.5f, NX.MUTED), t = 14)
+        }
+        col.add(View(ctx), MATCH, ctx.dp(10))
         return sv
+    }
+
+    private fun siteCard(name: String, onClick: () -> Unit): View {
+        val v = ctx.hbox()
+        v.setPadding(ctx.dp(14), 0, ctx.dp(14), 0)
+        v.addView(ctx.icon(R.drawable.ic_globe, NX.CYAN, 20))
+        v.add(ctx.tv(name, 13.5f, NX.TEXT, 700), 0, WRAP, 1f, 10, 0, 0, 0)
+        v.add(ctx.icon(R.drawable.ic_arrow_right, NX.MUTED, 18), ctx.dp(18), ctx.dp(18))
+        v.rippleBg(glass(16f), ctx.dpf(16f))
+        v.setOnClickListener { onClick() }
+        return v
     }
 
     private fun appCell(icon: Drawable, name: String, onClick: () -> Unit): View {

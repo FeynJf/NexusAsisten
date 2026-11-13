@@ -107,6 +107,7 @@ class OverlayService : Service(), PanelHost, RecordHost {
     private var bannerView: View? = null
     private var recBar: RecordBar? = null
     private var backBubble: BackBubble? = null
+    private var mini: MiniWindow? = null
     private var panelParams: WindowManager.LayoutParams? = null
     private var hideUntil = 0L
     private val othersPresent by lazy { Prefs.compatMode && GameConflict.installed(this).isNotEmpty() }
@@ -351,7 +352,7 @@ class OverlayService : Service(), PanelHost, RecordHost {
     // ---------- Panel ----------
     private fun openPanel() {
         if (panel != null) return
-        val ui = try { PanelUi(this, this) } catch (e: Exception) {
+        val ui = try { PanelUi(this, this).also { it.build() } } catch (e: Exception) {
             Toast.makeText(applicationContext, "Gagal membuka panel Asisten", Toast.LENGTH_SHORT).show()
             return
         }
@@ -398,7 +399,7 @@ class OverlayService : Service(), PanelHost, RecordHost {
         Motion.run(dur) { t ->
             val r = (from + (to - from) * Motion.outCubic(t)).toInt()
             // Perbarui jendela hanya bila radius berubah cukup besar, supaya tidak membebani game.
-            if (abs(r - last) >= 2 || t >= 1f) {
+            if (abs(r - last) >= dp(4) || t >= 1f) {
                 last = r
                 p.blurBehindRadius = r
                 try { wm.updateViewLayout(v, p) } catch (_: Exception) {}
@@ -766,6 +767,20 @@ class OverlayService : Service(), PanelHost, RecordHost {
 
     override fun floatSupported() = GameUtils.freeformSupported(this)
 
+    override fun gameIcon(): Drawable? = GameRepo.icon(this, pkg)
+
+    /** Jendela mini bawaan (browser mengambang). Hanya butuh izin overlay yang sudah ada. */
+    override fun openMiniWindow(index: Int) {
+        val site = MiniWindow.SITES.getOrNull(index) ?: return
+        closePanel()
+        // Tunggu animasi tutup panel selesai supaya jendela mini muncul bersih di atas game.
+        handler.postDelayed({
+            if (!started) return@postDelayed
+            val m = mini ?: MiniWindow(this, wm) { mini = null }.also { mini = it }
+            try { m.show(site) } catch (_: Exception) { toast("Gagal membuka jendela mini") }
+        }, 330)
+    }
+
     override fun openFloatHelp() = launchUi(SettingsActivity::class.java)
 
     override fun pinShortcut() {
@@ -795,6 +810,8 @@ class OverlayService : Service(), PanelHost, RecordHost {
         recBar = null
         backBubble?.hide(true)
         backBubble = null
+        mini?.hide(true)
+        mini = null
         hudInst?.release()
         if (ScreenCaptureService.ready || ScreenCaptureService.recording) ScreenCaptureService.send(this, ScreenCaptureService.ACTION_END)
         bannerView?.let { try { wm.removeView(it) } catch (_: Exception) {} }

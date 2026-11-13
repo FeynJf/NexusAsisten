@@ -7,7 +7,8 @@ Android Studio (Giraffe/Hedgehog+), buka folder ini, Sync, Run. minSdk 29, targe
 
 ## Fitur
 - Beranda: game, tombol Mulai, perangkat live (gauge suhu/baterai/profil), waktu bermain, izin.
-- Overlay Asisten Game (geser dari tepi / tap pill): tab Performa, Alat, Saya + dock aplikasi.
+- Overlay Asisten Game 1.9 "Obsidian Aurora" (geser dari tepi / tap pill): kartu kaca melayang, HUD FPS + grafik, aksi cepat, tab kapsul (Performa, Alat, Aplikasi, Saya). Tarik header ke bawah untuk menutup.
+- Jendela mini bawaan (YouTube, Google, WhatsApp Web, Instagram): mengambang di atas game tanpa izin tambahan, bisa digeser dan diubah ukurannya.
 - Performa per game: Hemat / Seimbang / Gamer Pro, refresh rate, sampling sentuhan, sensitivitas, blokir panggilan & notifikasi.
 - Alat: kecerahan, cek jaringan, RAM, cuplikan & rekam layar, bantuan bidik, cegah salah sentuh, DND, Mode Fokus, layar menyala, volume, kunci orientasi.
 - Album game, pintasan layar Awal, auto-turun mode saat panas.

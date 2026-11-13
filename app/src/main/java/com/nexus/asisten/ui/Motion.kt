@@ -26,6 +26,9 @@ object Motion {
     /** Pegas teredam: melampaui sedikit (~9%) lalu mengendap. Terasa "hidup" tanpa memantul berlebihan. */
     fun spring(t: Float): Float = if (t >= 1f) 1f else (1.0 - exp(-7.0 * t) * cos(9.0 * t)).toFloat()
 
+    /** Kurva iOS-like: cepat di awal, mendarat sangat halus tanpa memantul. */
+    fun smooth(t: Float): Float { val x = 1f - t; return 1f - x * x * x * x * x }
+
     fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 
     // ---------- Animasi sekali jalan ----------
@@ -35,7 +38,8 @@ object Motion {
         private val frame: (Float) -> Unit,
         private val end: (() -> Unit)?
     ) : Choreographer.FrameCallback {
-        private var t0 = -1L
+        private var last = -1L
+        private var acc = 0L
         private var done = false
 
         internal fun begin(): Handle {
@@ -50,8 +54,11 @@ object Motion {
 
         override fun doFrame(frameTimeNanos: Long) {
             if (done) return
-            if (t0 < 0) t0 = frameTimeNanos
-            val el = (frameTimeNanos - t0) / 1_000_000L - delay
+            // Jam animasi maju paling banyak 34 ms per frame. Saat game berat dan satu frame molor (jendela baru
+            // ditambahkan, tata letak besar), animasi tidak loncat ke akhir: ia lanjut dari titik terakhir.
+            if (last >= 0) acc += ((frameTimeNanos - last) / 1_000_000L).coerceIn(0L, 34L)
+            last = frameTimeNanos
+            val el = acc - delay
             if (el < 0) {
                 frame(0f)
                 Choreographer.getInstance().postFrameCallback(this)
