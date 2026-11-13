@@ -30,6 +30,7 @@ import com.nexus.asisten.data.Prefs
 import com.nexus.asisten.ui.*
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -70,8 +71,8 @@ interface PanelHost {
 }
 
 /**
- * Overlay Nexus Gamer: geser dari bawah-tengah, menu aksi cepat mengembang membentuk busur 180°,
- * di atasnya kartu kaca hitam transparan berisi halaman yang bisa digeser kiri-kanan.
+ * Overlay Nexus Gamer: geser dari bawah-tengah. SATU panel kubah 180°: tombol aksi cepat berjajar di
+ * sepanjang busur, HUD (FPS, ping, suhu, baterai) di dalam busur, lalu tab dan halaman geser di bawahnya.
  */
 class PanelUi(private val ctx: Context, private val host: PanelHost) {
     val root = FrameLayout(ctx)
@@ -93,6 +94,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     private var tvTemp: TextView? = null
     private var tvBat: TextView? = null
     private var tvSession: TextView? = null
+    private var tvSessionHero: TextView? = null
 
     private val tabNames = listOf("Performa", "Alat", "Aplikasi", "Saya")
     private val selfAnnounced = setOf("Cegah salah sentuh", "Mode Fokus")
@@ -169,64 +171,160 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         if (scrim.alpha < 0.99f) { scrim.animate().cancel(); scrim.alpha = 1f }
     }
 
-    // ---------- Tata letak ----------
+    // ---------- Tata letak: SATU panel kubah 180° ----------
     private fun layoutUi(w: Int, h: Int) {
         val land = w > h
         val status = if (land) 0 else ctx.statusInset()
-        val nav = if (land) ctx.dp(6) else ctx.navInset()
-        val ox: Int
-        val oy: Int
-        val r: Int
-        val pl: Int
-        val pt: Int
-        val pr: Int
-        val pb: Int
-        if (!land) {
-            ox = w / 2
-            oy = h - nav - ctx.dp(54)
-            r = min(w / 2 - ctx.dp(40), ctx.dp(142))
-            pl = ctx.dp(12); pr = w - ctx.dp(12); pt = status + ctx.dp(12); pb = oy - r - ctx.dp(44)
+        val bottomM = if (land) ctx.dp(8) else ctx.navInset() + ctx.dp(8)
+        val a: Int
+        val rho: Int
+        val s: Int
+        if (land) {
+            a = min(w / 2 - ctx.dp(12), ctx.dp(340))
+            val total = min(h - bottomM - ctx.dp(10), ctx.dp(400))
+            rho = min(ctx.dp(150), total / 2)
+            s = total - rho
         } else {
-            oy = h - ctx.dp(54) - nav
-            r = min(min(ctx.dp(128), (w * 0.22f).toInt() - ctx.dp(20)), oy - ctx.dp(70)).coerceAtLeast(ctx.dp(72))
-            ox = w - r - ctx.dp(54)
-            pl = ctx.dp(14); pt = ctx.dp(10); pb = h - ctx.dp(10)
-            pr = max(ox - r - ctx.dp(54), pl + ctx.dp(260))
+            a = w / 2 - ctx.dp(6)
+            rho = a
+            val avail = h - status - bottomM - ctx.dp(16)
+            val total = min((avail * 0.88f).toInt(), ctx.dp(660))
+            s = max(total - rho, ctx.dp(300))
         }
-        buildCard(pl, pt, pr - pl, max(pb - pt, ctx.dp(220)))
-        buildArc(ox, oy, r)
+        val total = rho + s
+        val frame = FrameLayout(ctx)
+        frame.background = DomeDrawable(a.toFloat(), rho.toFloat(), s.toFloat(), ctx.dpf(34f), ctx.dpf(24f), ctx.dpf(1f))
+        frame.isClickable = true
+        buildDome(frame, land, a, rho, s)
+        root.addView(frame, FrameLayout.LayoutParams(2 * a, total, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also {
+            it.bottomMargin = bottomM
+        })
+        frame.pivotX = a.toFloat()
+        frame.pivotY = total.toFloat()
+        card = frame
     }
 
-    private fun buildCard(left: Int, top: Int, cw: Int, ch: Int) {
-        val c = FrameLayout(ctx)
-        c.background = NeonDrawable(Color.parseColor("#EE0F1426"), Color.parseColor("#F2060810"), ctx.dpf(28f))
-        c.isClickable = true
-        val col = ctx.vbox()
-        c.addView(col, FrameLayout.LayoutParams(MATCH, MATCH))
+    private fun buildDome(frame: FrameLayout, land: Boolean, a: Int, rho: Int, s: Int) {
+        val total = rho + s
+        val fw = 2 * a
+        val cx = a.toFloat()
+        val cy = rho.toFloat()
 
-        tabW = (cw - ctx.dp(20)) / tabNames.size
-        val tabs = ctx.hbox()
-        tabs.setPadding(ctx.dp(10), ctx.dp(8), ctx.dp(10), 0)
-        tabNames.forEachIndexed { i, n ->
-            val t = ctx.tv(n, 12f, NX.MUTED, 700)
+        // --- Tombol aksi cepat berjajar rata sepanjang busur 180° ---
+        val items = listOf(
+            ArcItem(R.drawable.ic_bolt, "Boost", null) { host.boost() },
+            ArcItem(R.drawable.ic_scissors, "Cuplikan", null) { host.screenshot() },
+            ArcItem(R.drawable.ic_video, "Rekam", { host.isRecording() }) { host.toggleRecord() },
+            ArcItem(R.drawable.ic_bell, "Senyap", { Booster.dndOn(ctx) }) { host.setDnd(!Booster.dndOn(ctx)) },
+            ArcItem(R.drawable.ic_crosshair, "Bidik", { Prefs.crosshair }) { host.setCrosshair(!Prefs.crosshair) },
+            ArcItem(R.drawable.ic_hand, "Kunci tepi", { Prefs.edgeGuard }) { host.setEdgeGuard(!Prefs.edgeGuard) },
+            ArcItem(R.drawable.ic_monitor, "Jendela", null) { pager.snapTo(2) }
+        )
+        val n = items.size
+        val ra = a - ctx.dpf(34f)
+        val rb = rho - ctx.dpf(34f)
+        val steps = 360
+        val xs = FloatArray(steps + 1)
+        val ys = FloatArray(steps + 1)
+        val cum = FloatArray(steps + 1)
+        for (k in 0..steps) {
+            val th = PI - k * PI / steps
+            xs[k] = (ra * cos(th)).toFloat()
+            ys[k] = (rb * sin(th)).toFloat()
+            if (k > 0) cum[k] = cum[k - 1] + hypot(xs[k] - xs[k - 1], ys[k] - ys[k - 1])
+        }
+        val len = cum[steps]
+        val bw = ctx.dp(64)
+        val bh = ctx.dp(76)
+        val cy0 = ctx.dp(26)
+        items.forEachIndexed { i, item ->
+            val target = len * (i + 0.5f) / n
+            var k = 1
+            while (k < steps && cum[k] < target) k++
+            val px = cx + xs[k]
+            val py = cy - ys[k]
+            val v = arcButton(item)
+            frame.addView(v, FrameLayout.LayoutParams(bw, bh, Gravity.TOP or Gravity.START).also { lp ->
+                lp.leftMargin = (px - bw / 2f).toInt()
+                lp.topMargin = (py - cy0).toInt()
+            })
+            arcBtns.add(v)
+            arcOffsets.add(Pair(cx - px, cy - py))
+        }
+
+        // --- HUD di dalam busur ---
+        if (land) {
+            val row = ctx.hbox()
+            row.gravity = Gravity.CENTER
+            val ping = statBlock("Ping", NX.TEXT, 15f)
+            val temp = statBlock("Suhu", NX.WARN, 15f)
+            val fps = statBlock("FPS", NX.CYAN, 30f)
+            val bat = statBlock("Baterai", NX.GOOD, 15f)
+            val ses = statBlock("Sesi", NX.TEXT2, 15f)
+            tvPing = ping.second; tvTemp = temp.second; tvFps = fps.second; tvBat = bat.second; tvSessionHero = ses.second
+            listOf(ping, temp, fps, bat, ses).forEachIndexed { idx, b ->
+                row.add(b.first, ctx.dp(if (idx == 2) 96 else 70), WRAP)
+            }
+            frame.addView(row, FrameLayout.LayoutParams(ctx.dp(376), WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
+                it.topMargin = ctx.dp(102)
+            })
+        } else {
+            val fps = statBlock("FPS", NX.CYAN, 38f)
+            tvFps = fps.second
+            frame.addView(fps.first, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
+                it.topMargin = rho - ctx.dp(84)
+            })
+            val row = ctx.hbox()
+            val ping = statBlock("Ping", NX.TEXT, 15f)
+            val temp = statBlock("Suhu", NX.WARN, 15f)
+            val bat = statBlock("Baterai", NX.GOOD, 15f)
+            val ses = statBlock("Sesi", NX.TEXT2, 15f)
+            tvPing = ping.second; tvTemp = temp.second; tvBat = bat.second; tvSessionHero = ses.second
+            listOf(ping, temp, bat, ses).forEach { row.add(it.first, 0, WRAP, 1f) }
+            frame.addView(row, FrameLayout.LayoutParams(fw - ctx.dp(32), WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
+                it.topMargin = rho + ctx.dp(2)
+            })
+        }
+
+        // --- Tab + tombol tutup ---
+        val cw = fw - ctx.dp(32)
+        val tabsW = min(cw - ctx.dp(52), ctx.dp(440))
+        tabW = tabsW / tabNames.size
+        val tabsTop = rho + if (land) ctx.dp(6) else ctx.dp(52)
+        val head = ctx.vbox()
+        val tabsRow = ctx.hbox()
+        tabsRow.gravity = Gravity.CENTER_VERTICAL
+        tabNames.forEachIndexed { i, nm ->
+            val t = ctx.tv(nm, 12f, NX.MUTED, 700)
             t.isAllCaps = true
             t.letterSpacing = 0.1f
             t.gravity = Gravity.CENTER
-            t.setPadding(0, ctx.dp(11), 0, ctx.dp(9))
+            t.setPadding(0, ctx.dp(9), 0, ctx.dp(7))
             t.setOnClickListener { pager.snapTo(i) }
             t.pressFx(0.94f)
             tabLabels.add(t)
-            tabs.add(t, tabW, WRAP)
+            tabsRow.add(t, tabW, WRAP)
         }
-        col.addView(tabs)
+        val close = FrameLayout(ctx)
+        close.background = NeonDrawable(Color.parseColor("#F0141A2E"), Color.parseColor("#F00A0D18"), ctx.dpf(17f))
+        close.addView(ctx.icon(R.drawable.ic_close, NX.TEXT, 16), FrameLayout.LayoutParams(ctx.dp(16), ctx.dp(16), Gravity.CENTER))
+        close.setOnClickListener { host.close() }
+        close.pressFx(0.9f)
+        tabsRow.add(close, ctx.dp(34), ctx.dp(34), 0f, 8, 0, 0, 0)
+        head.addView(tabsRow)
         val indWrap = FrameLayout(ctx)
-        indWrap.setPadding(ctx.dp(10), 0, ctx.dp(10), 0)
         tabIndicator = View(ctx)
         tabIndicator.background = gradientRounded(NX.ACCENT, NX.CYAN, ctx.dpf(2f))
         tabIndicator.glow(NX.CYAN, 4f)
         indWrap.addView(tabIndicator, FrameLayout.LayoutParams(tabW - ctx.dp(28), ctx.dp(3)).also { it.leftMargin = ctx.dp(14) })
-        col.addView(indWrap)
+        head.add(indWrap, tabsW, WRAP)
+        frame.addView(head, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
+            it.topMargin = tabsTop
+        })
 
+        // --- Halaman (geser kiri-kanan) ---
+        val pagerTop = tabsTop + ctx.dp(50)
+        val pageH = max(total - pagerTop - ctx.dp(14), ctx.dp(80))
         pager = SnapPager(ctx) { pos -> onPagePos(pos) }
         pager.pageW = cw
         pager.count = tabNames.size
@@ -239,13 +337,9 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
             rebuildPage(i)
         }
         pager.addView(row, FrameLayout.LayoutParams(cw * tabNames.size, MATCH))
-        col.add(pager, MATCH, 0, 1f, 0, 4, 0, 0)
-
-        root.addView(c, FrameLayout.LayoutParams(cw, ch, Gravity.TOP or Gravity.START).also {
-            it.leftMargin = left
-            it.topMargin = top
+        frame.addView(pager, FrameLayout.LayoutParams(cw, pageH, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
+            it.topMargin = pagerTop
         })
-        card = c
         onPagePos(0f)
     }
 
@@ -264,62 +358,6 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
 
     // ---------- Busur 180° ----------
     private class ArcItem(val icon: Int, val label: String, val state: (() -> Boolean)?, val onClick: () -> Unit)
-
-    private fun buildArc(ox: Int, oy: Int, r: Int) {
-        val items = listOf(
-            ArcItem(R.drawable.ic_bolt, "Boost", null) { host.boost() },
-            ArcItem(R.drawable.ic_scissors, "Cuplikan", null) { host.screenshot() },
-            ArcItem(R.drawable.ic_video, "Rekam", { host.isRecording() }) { host.toggleRecord() },
-            ArcItem(R.drawable.ic_bell, "Senyap", { Booster.dndOn(ctx) }) { host.setDnd(!Booster.dndOn(ctx)) },
-            ArcItem(R.drawable.ic_crosshair, "Bidik", { Prefs.crosshair }) { host.setCrosshair(!Prefs.crosshair) },
-            ArcItem(R.drawable.ic_hand, "Kunci tepi", { Prefs.edgeGuard }) { host.setEdgeGuard(!Prefs.edgeGuard) },
-            ArcItem(R.drawable.ic_monitor, "Jendela", null) { pager.snapTo(2) }
-        )
-        val n = items.size
-        val bw = ctx.dp(64)
-        val bh = ctx.dp(76)
-        val cy0 = ctx.dp(26)
-        items.forEachIndexed { i, item ->
-            val theta = PI - i * PI / (n - 1)
-            val x = ox + (r * cos(theta)).toFloat()
-            val y = oy - (r * sin(theta)).toFloat()
-            val v = arcButton(item)
-            root.addView(v, FrameLayout.LayoutParams(bw, bh, Gravity.TOP or Gravity.START).also { lp ->
-                lp.leftMargin = (x - bw / 2f).toInt()
-                lp.topMargin = (y - cy0).toInt()
-            })
-            arcBtns.add(v)
-            arcOffsets.add(Pair(ox - x, oy - y))
-        }
-        // Tombol tengah: tutup. Swipe ke bawah juga menutup.
-        val o = FrameLayout(ctx)
-        o.background = NeonDrawable(Color.parseColor("#F0141A2E"), Color.parseColor("#F00A0D18"), ctx.dpf(28f))
-        o.glow(NX.ACCENT, 10f)
-        o.addView(ctx.icon(R.drawable.ic_close, NX.TEXT, 22), FrameLayout.LayoutParams(ctx.dp(22), ctx.dp(22), Gravity.CENTER))
-        o.setOnClickListener { host.close() }
-        o.pressFx(0.9f)
-        var downY = 0f
-        o.setOnTouchListener { v, e ->
-            when (e.actionMasked) {
-                android.view.MotionEvent.ACTION_DOWN -> {
-                    downY = e.rawY
-                    v.animate().scaleX(0.9f).scaleY(0.9f).setDuration(90).start()
-                }
-                android.view.MotionEvent.ACTION_UP -> {
-                    v.animate().scaleX(1f).scaleY(1f).setDuration(160).start()
-                    host.close()
-                }
-                android.view.MotionEvent.ACTION_MOVE -> if (e.rawY - downY > ctx.dp(28)) host.close()
-                android.view.MotionEvent.ACTION_CANCEL -> v.animate().scaleX(1f).scaleY(1f).setDuration(160).start()
-            }
-            true
-        }
-        root.addView(o, FrameLayout.LayoutParams(ctx.dp(56), ctx.dp(56), Gravity.TOP or Gravity.START).also {
-            it.leftMargin = ox - ctx.dp(28)
-            it.topMargin = oy - ctx.dp(28)
-        })
-        origin = o
-    }
 
     private fun arcButton(item: ArcItem): View {
         val col = ctx.vbox()
@@ -412,7 +450,6 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     private fun rebuildPage(i: Int) {
         val f = pageFrames[i]
         f.removeAllViews()
-        if (i == 0) { tvFps = null; tvPing = null; tvTemp = null; tvBat = null }
         if (i == 3) tvSession = null
         f.addView(when (i) { 0 -> pagePerforma(); 1 -> pageAlat(); 2 -> pageAplikasi(); else -> pageSaya() }, FrameLayout.LayoutParams(MATCH, MATCH))
     }
@@ -427,26 +464,14 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
 
     private fun glass(radius: Float = 18f): Drawable = rounded(withAlpha(Color.WHITE, 0x0D), ctx.dpf(radius), NX.LINE, 1)
 
-    private fun statBlock(label: String, color: Int): Pair<LinearLayout, TextView> {
+    private fun statBlock(label: String, color: Int, sizeSp: Float): Pair<LinearLayout, TextView> {
         val b = ctx.vbox()
         b.gravity = Gravity.CENTER_HORIZONTAL
-        val v = ctx.tv("--", 24f, color, 700)
-        b.addView(ctx.tv(label, 10.5f, NX.MUTED, 700).also { it.isAllCaps = true; it.letterSpacing = 0.1f })
-        b.add(v, WRAP, WRAP, 0f, 0, 2, 0, 0)
+        val v = ctx.tv("--", sizeSp, color, 700)
+        b.addView(ctx.tv(label, 9.5f, NX.MUTED, 700).also { it.isAllCaps = true; it.letterSpacing = 0.12f })
+        b.add(v, WRAP, WRAP, 0f, 0, 1, 0, 0)
+        if (sizeSp >= 28f) v.glow(color, 8f)
         return Pair(b, v)
-    }
-
-    private fun statsRow(): View {
-        val row = ctx.hbox()
-        row.background = glass(20f)
-        row.setPadding(ctx.dp(6), ctx.dp(12), ctx.dp(6), ctx.dp(12))
-        val a = statBlock("FPS", NX.CYAN)
-        val b = statBlock("Ping", NX.TEXT)
-        val c = statBlock("Suhu", NX.WARN)
-        val d = statBlock("Baterai", NX.GOOD)
-        tvFps = a.second; tvPing = b.second; tvTemp = c.second; tvBat = d.second
-        listOf(a, b, c, d).forEach { row.add(it.first, 0, WRAP, 1f) }
-        return row
     }
 
     fun update(fps: Int, exact: Boolean, ping: Int, temp: Float, bat: Int) {
@@ -456,13 +481,13 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         tvTemp?.setTextColor(if (temp >= Prefs.tempWarn) NX.HOT else NX.WARN)
         tvBat?.text = "$bat%"
         tvSession?.text = fmtDuration(host.sessionMs())
+        tvSessionHero?.text = fmtDuration(host.sessionMs())
     }
 
     private fun pagePerforma(): View {
         val (sv, col) = scrollPage()
         val p = host.profile()
-        col.add(statsRow())
-        col.add(ctx.gradientButton("Boost sekarang") { host.boost() }, t = 12)
+        col.add(ctx.gradientButton("Boost sekarang") { host.boost() }, t = 4)
         col.add(ctx.tv("Kosongkan RAM, kunci Wi-Fi & refresh rate, lalu uji jaringan.", 11.5f, NX.MUTED), t = 6)
         col.add(ctx.sectionTitle("Mode performa"), t = 16, b = 8)
         val modeNames = listOf("Hemat daya", "Seimbang", "Gamer Pro")
