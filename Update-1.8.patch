@@ -1,0 +1,2106 @@
+diff --git a/README.md b/README.md
+index 0ddac57..2712b38 100644
+--- a/README.md
++++ b/README.md
+@@ -12,6 +12,13 @@ Android Studio (Giraffe/Hedgehog+), buka folder ini, Sync, Run. minSdk 29, targe
+ - Alat: kecerahan, cek jaringan, RAM, cuplikan & rekam layar, bantuan bidik, cegah salah sentuh, DND, Mode Fokus, layar menyala, volume, kunci orientasi.
+ - Album game, pintasan layar Awal, auto-turun mode saat panas.
+ 
++## Update 1.8
++
++- Overlay & aplikasi didesain ulang bergaya Premium Gamer (kaca gelap, neon violet/cyan/magenta, aurora bergerak, bingkai mengalir, ikon baru, ikon aplikasi baru).
++- Animasi memakai mesin sendiri (Choreographer), jadi tetap halus walau "Skala animasi" di Opsi Pengembang dimatikan atau Hemat Baterai aktif.
++- Aplikasi dari tab Aplikasi dibuka tanpa izin tambahan: bila HP belum mendukung jendela mengambang, muncul gelembung Nexus untuk kembali ke game.
++- Blur latar panel (Android 12+), bisa dimatikan di Pengaturan.
++
+ ## Data nyata vs terbatas
+ Nyata: suhu/baterai (BatteryManager), ping (TCP), RAM, foreground game (UsageEvents), waktu bermain, rekam/cuplik (MediaProjection).
+ FPS akurat: `adb shell pm grant com.nexus.asisten android.permission.DUMP` (tanpa itu = estimasi bertanda ~).
+diff --git a/app/build.gradle b/app/build.gradle
+index 72614e2..ecf4a29 100644
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -25,7 +25,7 @@ android {
+         minSdk 29
+         targetSdk 33
+         versionCode 100 + runNumber
+-        versionName "1.7"
++        versionName "1.8"
+         buildConfigField "int", "BUILD_NUMBER", "${runNumber}"
+         buildConfigField "String", "UPDATE_REPO", "\"FeynJf/NexusAsisten\""
+     }
+diff --git a/app/src/main/java/com/nexus/asisten/MainActivity.kt b/app/src/main/java/com/nexus/asisten/MainActivity.kt
+index c46bd8c..d338423 100644
+--- a/app/src/main/java/com/nexus/asisten/MainActivity.kt
++++ b/app/src/main/java/com/nexus/asisten/MainActivity.kt
+@@ -171,12 +171,13 @@ class MainActivity : AppCompatActivity() {
+     private fun buildTopBar() {
+         val bar = hbox()
+         val logo = FrameLayout(this)
+-        logo.background = gradientRounded(NX.ACCENT_DEEP, NX.CYAN, dpf(16f), GradientDrawable.Orientation.TL_BR)
+-        logo.glow(NX.ACCENT, 12f)
++        logo.background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(NX.ACCENT_DEEP, NX.BLUE, NX.CYAN))
++            .also { it.cornerRadius = dpf(16f); it.setStroke(1, withAlpha(Color.WHITE, 0x66)) }
++        logo.glow(NX.CYAN, 14f)
+         logo.addView(icon(R.drawable.ic_gamepad, Color.WHITE, 24), FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+         bar.add(logo, dp(46), dp(46), 0f, 0, 0, 14, 0)
+         val t = vbox()
+-        t.addView(tv("NEXUS", 26f, NX.TEXT, 700).also { it.letterSpacing = 0.22f })
++        t.addView(tv("NEXUS", 26f, NX.TEXT, 700).also { it.letterSpacing = 0.26f })
+         t.add(tv("Halo, ${Prefs.userName}", 12.5f, NX.TEXT2), t = 0)
+         bar.add(t, 0, WRAP, 1f)
+         val set = FrameLayout(this)
+@@ -234,9 +235,10 @@ class MainActivity : AppCompatActivity() {
+         val prof = Prefs.profile(g.pkg)
+         val hero = vbox(20, 20)
+         hero.background = GradientDrawable(
+-            GradientDrawable.Orientation.TL_BR, intArrayOf(Color.parseColor("#4A2BE0"), Color.parseColor("#14123A"), Color.parseColor("#070816"))
+-        ).also { it.cornerRadius = dpf(30f); it.setStroke(1, withAlpha(Color.WHITE, 0x44)) }
+-        hero.glow(NX.ACCENT, 16f)
++            GradientDrawable.Orientation.TL_BR,
++            intArrayOf(Color.parseColor("#5B34F5"), Color.parseColor("#2A1A7A"), Color.parseColor("#120F36"), Color.parseColor("#06070F"))
++        ).also { it.cornerRadius = dpf(30f); it.setStroke(dp(1), withAlpha(NX.CYAN, 0x66)) }
++        hero.glow(NX.ACCENT, 18f)
+         val top = hbox()
+         val ic = appIcon(g.icon, 76, 22)
+         ic.glow(NX.CYAN, 12f)
+diff --git a/app/src/main/java/com/nexus/asisten/SettingsActivity.kt b/app/src/main/java/com/nexus/asisten/SettingsActivity.kt
+index 545edfe..735c841 100644
+--- a/app/src/main/java/com/nexus/asisten/SettingsActivity.kt
++++ b/app/src/main/java/com/nexus/asisten/SettingsActivity.kt
+@@ -94,21 +94,23 @@ class SettingsActivity : AppCompatActivity() {
+         }
+ 
+         group(col, "Jendela mengambang") { c ->
+-            c.addView(switchRow("Buka aplikasi overlay sebagai jendela", "Aplikasi dari tab Aplikasi di overlay dibuka mengambang di atas game.", Prefs.floatingWindow) { Prefs.floatingWindow = it })
++            c.addView(switchRow("Buka aplikasi overlay sebagai jendela", "Aplikasi dari tab Aplikasi di overlay dibuka mengambang di atas game bila HP mendukung.", Prefs.floatingWindow) { Prefs.floatingWindow = it })
+             val box = vbox(16, 10)
+             box.addView(tv("Ukuran jendela", 15f, NX.TEXT, 500))
+             box.add(chipRow(listOf("Kecil", "Sedang", "Besar"), Prefs.floatSize) { Prefs.floatSize = it }, t = 10, b = 6)
+             val ok = GameUtils.freeformSupported(this)
+             box.add(tv(
+                 if (ok) "Mode jendela aktif di HP ini."
+-                else "Mode jendela belum aktif di HP ini, jadi aplikasi dibuka layar penuh. Aktifkan salah satu cara di bawah, lalu restart HP.",
+-                12.5f, if (ok) NX.GOOD else NX.WARN
++                else "Mode jendela belum aktif di HP ini. Tidak perlu izin apa pun: aplikasi dibuka di atas game dan gelembung Nexus muncul untuk kembali ke game dengan satu ketukan.",
++                12.5f, if (ok) NX.GOOD else NX.TEXT2
+             ), t = 8)
+             if (!ok) {
+-                box.add(tv("Opsi Pengembang → \"Aktifkan jendela freeform\" dan \"Paksa aktivitas agar dapat diubah ukurannya\".", 12f, NX.TEXT2), t = 6)
++                box.add(tv("Opsional, untuk jendela mengambang sungguhan (butuh pengaturan HP, bukan izin aplikasi):", 12f, NX.MUTED), t = 12)
++                box.add(tv("Opsi Pengembang → \"Aktifkan jendela freeform\" / \"Aktifkan jendela bentuk bebas\", lalu \"Paksa aktivitas agar dapat diubah ukurannya\". Restart HP. Jika Opsi Pengembang belum ada: Tentang ponsel → ketuk Nomor build 7 kali.", 12f, NX.TEXT2), t = 6)
++                box.add(ghostButton("Buka Opsi Pengembang") { Perms.openDevOptions(this) }, t = 10)
+                 box.add(ghostButton("Salin perintah ADB") {
+                     copyText("adb", "adb shell settings put global enable_freeform_support 1\nadb shell settings put global force_resizable_activities 1")
+-                }, t = 10)
++                }, t = 8)
+                 if (Perms.secure(this)) box.add(gradientButton("Aktifkan sekarang") {
+                     Fx.say(this, if (GameUtils.enableFreeform(this)) "Aktif. Restart HP untuk menerapkan." else "Gagal mengaktifkan", Fx.OK)
+                 }, t = 8)
+@@ -137,6 +139,8 @@ class SettingsActivity : AppCompatActivity() {
+ 
+         group(col, "Tampilan & umpan balik") { c ->
+             c.addView(switchRow("Getar halus saat mengetuk", "Memberi sensasi tekan pada tombol dan kartu.", Prefs.haptic) { Prefs.haptic = it })
++            c.sep()
++            c.addView(switchRow("Blur latar panel", "Mengaburkan game di belakang panel overlay (Android 12+). Matikan bila game terasa berat.", Prefs.panelBlur) { Prefs.panelBlur = it })
+         }
+ 
+         group(col, "Asisten Game di layar Awal") { c ->
+diff --git a/app/src/main/java/com/nexus/asisten/core/Perms.kt b/app/src/main/java/com/nexus/asisten/core/Perms.kt
+index cca8d04..637ff86 100644
+--- a/app/src/main/java/com/nexus/asisten/core/Perms.kt
++++ b/app/src/main/java/com/nexus/asisten/core/Perms.kt
+@@ -121,6 +121,14 @@ object Perms {
+         Intent(Settings.ACTION_WIFI_SETTINGS)
+     )
+ 
++    /** Opsi Pengembang (bila sudah aktif); cadangan: Tentang ponsel (untuk mengetuk Nomor build 7x) lalu Pengaturan. */
++    fun openDevOptions(ctx: Context) = openFirst(
++        ctx,
++        Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
++        Intent(Settings.ACTION_DEVICE_INFO_SETTINGS),
++        Intent(Settings.ACTION_SETTINGS)
++    )
++
+     fun openPrivateDns(ctx: Context) = openFirst(
+         ctx,
+         Intent("android.settings.PRIVATE_DNS_SETTINGS"),
+diff --git a/app/src/main/java/com/nexus/asisten/data/Prefs.kt b/app/src/main/java/com/nexus/asisten/data/Prefs.kt
+index 4a8095a..ffc008b 100644
+--- a/app/src/main/java/com/nexus/asisten/data/Prefs.kt
++++ b/app/src/main/java/com/nexus/asisten/data/Prefs.kt
+@@ -28,6 +28,7 @@ object Prefs {
+ 
+     // Pengaturan umum
+     var openAnimation: Boolean get() = b("open_anim", true); set(v) = putB("open_anim", v)
++    var panelBlur: Boolean get() = b("panel_blur", true); set(v) = putB("panel_blur", v)
+     var albumEnabled: Boolean get() = b("album", true); set(v) = putB("album", v)
+     var autoAdjust: Boolean get() = b("auto_adjust", true); set(v) = putB("auto_adjust", v)
+     var tempWarn: Int get() = i("temp_warn", 43); set(v) = putI("temp_warn", v)
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/BackBubble.kt b/app/src/main/java/com/nexus/asisten/overlay/BackBubble.kt
+new file mode 100644
+index 0000000..e4c23d9
+--- /dev/null
++++ b/app/src/main/java/com/nexus/asisten/overlay/BackBubble.kt
+@@ -0,0 +1,157 @@
++package com.nexus.asisten.overlay
++
++import android.annotation.SuppressLint
++import android.content.Context
++import android.graphics.Color
++import android.graphics.PixelFormat
++import android.graphics.drawable.Drawable
++import android.graphics.drawable.GradientDrawable
++import android.view.Gravity
++import android.view.MotionEvent
++import android.view.ViewConfiguration
++import android.view.ViewOutlineProvider
++import android.view.WindowManager
++import android.widget.FrameLayout
++import android.widget.ImageView
++import com.nexus.asisten.R
++import com.nexus.asisten.ui.Motion
++import com.nexus.asisten.ui.NX
++import com.nexus.asisten.ui.circle
++import com.nexus.asisten.ui.dp
++import com.nexus.asisten.ui.dpf
++import com.nexus.asisten.ui.glow
++import com.nexus.asisten.ui.icon
++import kotlin.math.abs
++
++/**
++ * Gelembung "Kembali ke game". Pengganti jendela mengambang yang TIDAK butuh izin atau pengaturan tambahan:
++ * setelah aplikasi (mis. WhatsApp) dibuka di atas game, gelembung ini melayang di tepi layar. Ketuk untuk
++ * langsung pulang ke game, seret untuk memindahkan, otomatis menempel ke tepi dan hilang sendiri saat game kembali tampil.
++ */
++class BackBubble(
++    private val ctx: Context,
++    private val wm: WindowManager,
++    private val onTap: () -> Unit
++) {
++    private var view: FrameLayout? = null
++    private var params: WindowManager.LayoutParams? = null
++    private var run: Motion.Handle? = null
++
++    val shown: Boolean get() = view != null
++
++    companion object {
++        // Posisi terakhir diingat selama proses hidup, supaya gelembung muncul di tempat yang sama.
++        private var savedX = -1
++        private var savedY = -1
++    }
++
++    @SuppressLint("ClickableViewAccessibility")
++    fun show(icon: Drawable?) {
++        if (view != null) return
++        val size = ctx.dp(58)
++        val dm = ctx.resources.displayMetrics
++        val margin = ctx.dp(4)
++
++        val root = FrameLayout(ctx)
++        root.background = GlowDrawable(size / 2f, ctx.dpf(1f))
++
++        val iv = ImageView(ctx)
++        iv.setImageDrawable(icon)
++        iv.background = circle(NX.SURFACE2)
++        iv.clipToOutline = true
++        iv.outlineProvider = ViewOutlineProvider.BACKGROUND
++        iv.scaleType = ImageView.ScaleType.CENTER_CROP
++        root.addView(iv, FrameLayout.LayoutParams(ctx.dp(40), ctx.dp(40), Gravity.CENTER))
++
++        val badge = FrameLayout(ctx)
++        badge.background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(NX.ACCENT_DEEP, NX.CYAN)).also {
++            it.shape = GradientDrawable.OVAL
++            it.setStroke(ctx.dp(1), Color.parseColor("#99FFFFFF"))
++        }
++        badge.addView(ctx.icon(R.drawable.ic_back, Color.WHITE, 12), FrameLayout.LayoutParams(ctx.dp(12), ctx.dp(12), Gravity.CENTER))
++        root.addView(badge, FrameLayout.LayoutParams(ctx.dp(20), ctx.dp(20), Gravity.BOTTOM or Gravity.END).also {
++            it.rightMargin = ctx.dp(2); it.bottomMargin = ctx.dp(2)
++        })
++        root.glow(NX.ACCENT, 10f)
++
++        val p = WindowManager.LayoutParams(
++            size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
++            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
++                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
++            PixelFormat.TRANSLUCENT
++        )
++        p.gravity = Gravity.TOP or Gravity.START
++        p.x = if (savedX >= 0) savedX.coerceIn(0, dm.widthPixels - size) else dm.widthPixels - size - margin
++        p.y = if (savedY >= 0) savedY.coerceIn(0, dm.heightPixels - size) else (dm.heightPixels * 0.35f).toInt()
++        params = p
++
++        val slop = ViewConfiguration.get(ctx).scaledTouchSlop
++        var downX = 0f; var downY = 0f; var startX = 0; var startY = 0
++        var dragging = false
++        root.setOnTouchListener { _, e ->
++            when (e.actionMasked) {
++                MotionEvent.ACTION_DOWN -> {
++                    downX = e.rawX; downY = e.rawY; startX = p.x; startY = p.y; dragging = false
++                    run?.cancel()
++                    root.scaleX = 0.92f; root.scaleY = 0.92f
++                }
++                MotionEvent.ACTION_MOVE -> {
++                    val dx = e.rawX - downX
++                    val dy = e.rawY - downY
++                    if (!dragging && (abs(dx) > slop || abs(dy) > slop)) dragging = true
++                    if (dragging) {
++                        p.x = (startX + dx).toInt().coerceIn(0, dm.widthPixels - size)
++                        p.y = (startY + dy).toInt().coerceIn(0, dm.heightPixels - size)
++                        try { wm.updateViewLayout(root, p) } catch (_: Exception) {}
++                    }
++                }
++                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
++                    run = Motion.run(300) { t -> val sc = 0.92f + 0.08f * Motion.spring(t); root.scaleX = sc; root.scaleY = sc }
++                    if (e.actionMasked == MotionEvent.ACTION_UP) {
++                        if (!dragging) onTap() else snap(root, p, size, margin)
++                    }
++                }
++            }
++            true
++        }
++
++        view = root
++        try {
++            wm.addView(root, p)
++        } catch (_: Exception) {
++            view = null
++            return
++        }
++        root.alpha = 0f
++        root.scaleX = 0f; root.scaleY = 0f
++        run = Motion.run(560) { t ->
++            val e = Motion.spring(t)
++            root.scaleX = e; root.scaleY = e
++            root.alpha = Motion.outCubic((t * 3f).coerceAtMost(1f))
++        }
++    }
++
++    /** Menempel ke tepi kiri/kanan terdekat. */
++    private fun snap(v: FrameLayout, p: WindowManager.LayoutParams, size: Int, margin: Int) {
++        val w = ctx.resources.displayMetrics.widthPixels
++        val target = if (p.x + size / 2 < w / 2) margin else w - size - margin
++        val from = p.x
++        savedY = p.y
++        run = Motion.run(320, 0, { savedX = p.x }) { t ->
++            p.x = (from + (target - from) * Motion.outExpo(t)).toInt()
++            try { wm.updateViewLayout(v, p) } catch (_: Exception) {}
++        }
++    }
++
++    fun hide(immediate: Boolean = false) {
++        val v = view ?: return
++        view = null
++        run?.cancel()
++        val remove = { try { wm.removeView(v) } catch (_: Exception) {} }
++        if (immediate) { remove(); return }
++        run = Motion.run(200, 0, { remove() }) { t ->
++            val e = 1f - Motion.inCubic(t)
++            v.scaleX = e; v.scaleY = e; v.alpha = e
++        }
++    }
++}
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/DomeDrawable.kt b/app/src/main/java/com/nexus/asisten/overlay/DomeDrawable.kt
+index 1dcaafd..6054720 100644
+--- a/app/src/main/java/com/nexus/asisten/overlay/DomeDrawable.kt
++++ b/app/src/main/java/com/nexus/asisten/overlay/DomeDrawable.kt
+@@ -1,6 +1,7 @@
+ package com.nexus.asisten.overlay
+ 
+-import android.animation.ValueAnimator
++import android.graphics.Bitmap
++import android.graphics.BitmapShader
+ import android.graphics.Canvas
+ import android.graphics.ColorFilter
+ import android.graphics.DashPathEffect
+@@ -14,13 +15,16 @@ import android.graphics.RectF
+ import android.graphics.Shader
+ import android.graphics.SweepGradient
+ import android.graphics.drawable.Drawable
+-import android.view.animation.LinearInterpolator
++import com.nexus.asisten.ui.Motion
+ import com.nexus.asisten.ui.NX
++import kotlin.math.PI
++import kotlin.math.sin
+ 
+ /**
+- * Latar panel overlay: SATU bentuk kubah 180° (busur setengah elips di atas, dinding lurus di bawah).
+- * Kaca indigo yang tembus pandang (game tetap terlihat), kilau ungu di atas, bingkai neon berpendar,
+- * satu cahaya yang berputar pelan mengitari tepi, dan jalur putus-putus tempat tombol aksi berjajar.
++ * Latar panel overlay "Premium Gamer": SATU bentuk kubah 180° (busur setengah elips di atas, dinding lurus di bawah).
++ * Lapisan dari bawah ke atas: kaca indigo gelap, aurora violet/cyan/magenta yang melayang pelan, pola garis diagonal
++ * halus, kilau kaca, bingkai neon tiga warna yang mengalir + berdenyut, komet cahaya yang mengitari tepi,
++ * sudut siku bergaya HUD, berlian kecil di puncak, dan jalur putus-putus tempat tombol aksi berjajar.
+  */
+ class DomeDrawable(
+     private val a: Float,       // setengah lebar
+@@ -33,16 +37,33 @@ class DomeDrawable(
+ 
+     private val path = Path()
+     private val ring = Path()
++    private val brackets = Path()
++    private val diamond = Path()
+     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val auroraA = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val auroraB = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val auroraC = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val pattern = Paint(Paint.ANTI_ALIAS_FLAG)
+     private val sheen = Paint(Paint.ANTI_ALIAS_FLAG)
+-    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
++    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND }
+     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+     private val base = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+     private val runner = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
++    private val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
++    private val gem = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val gemGlow = Paint(Paint.ANTI_ALIAS_FLAG)
++
++    private val edgeShader: SweepGradient
+     private val runnerShader: SweepGradient
+-    private val runnerMatrix = Matrix()
+-    private var phase = 0f
+-    private var anim: ValueAnimator? = null
++    private val rotM = Matrix()
++    private val moveM = Matrix()
++
++    private var timeMs = 0L
++    private var loop: Motion.Loop? = null
++
++    /** 0..1: "menyala" saat panel dibuka (kilau bingkai naik dari redup ke terang). */
++    var intro = 1f
++        set(v) { field = v.coerceIn(0f, 1f); invalidateSelf() }
+ 
+     init {
+         val w = 2 * a
+@@ -59,63 +80,118 @@ class DomeDrawable(
+ 
+         ring.arcTo(RectF(inset, inset, w - inset, 2 * rho - inset), 180f, 180f, false)
+ 
+-        // Kaca tembus pandang: ~70% di atas, ~78% di bawah (bukan hitam pekat).
++        // Sudut siku HUD di kiri/kanan bawah.
++        val bm = px * 14f
++        val bl = px * 22f
++        val by = h - px * 14f
++        brackets.moveTo(bm, by - bl); brackets.lineTo(bm, by); brackets.lineTo(bm + bl, by)
++        brackets.moveTo(w - bm, by - bl); brackets.lineTo(w - bm, by); brackets.lineTo(w - bm - bl, by)
++
++        // Berlian kecil di puncak kubah.
++        val dy = m + px * 0.5f
++        val r = px * 5f
++        diamond.moveTo(a, dy - r); diamond.lineTo(a + r * 0.8f, dy); diamond.lineTo(a, dy + r); diamond.lineTo(a - r * 0.8f, dy); diamond.close()
++
++        // Kaca: gelap di bawah supaya teks mudah dibaca, sedikit tembus pandang di atas supaya game tetap terlihat.
+         fill.shader = LinearGradient(
+-            0f, 0f, 0f, h,
+-            intArrayOf(0xB52C2370.toInt(), 0xB9161D4A.toInt(), 0xC70A1030.toInt()), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP
++            0f, 0f, w * 0.35f, h,
++            intArrayOf(0xD8261C6A.toInt(), 0xE0141446.toInt(), 0xEC080B24.toInt()), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP
++        )
++        auroraA.shader = RadialGradient(w * 0.82f, rho * 0.55f, a * 1.05f, intArrayOf(0x66A66BFF, 0x00000000), null, Shader.TileMode.CLAMP)
++        auroraB.shader = RadialGradient(w * 0.12f, h * 0.55f, a * 1.0f, intArrayOf(0x4421E6FF, 0x00000000), null, Shader.TileMode.CLAMP)
++        auroraC.shader = RadialGradient(w * 0.55f, h * 0.98f, a * 0.9f, intArrayOf(0x3CFF4FD8, 0x00000000), null, Shader.TileMode.CLAMP)
++
++        // Pola garis diagonal halus + titik (ubin kecil berulang, murah digambar).
++        val ts = (px * 18f).toInt().coerceAtLeast(8)
++        val bmp = Bitmap.createBitmap(ts, ts, Bitmap.Config.ARGB_8888)
++        val bc = Canvas(bmp)
++        val lp = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x10FFFFFF; strokeWidth = px * 0.8f; style = Paint.Style.STROKE }
++        bc.drawLine(-ts * 0.2f, ts * 1.2f, ts * 1.2f, -ts * 0.2f, lp)
++        val dp0 = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1E21E6FF }
++        bc.drawCircle(ts / 2f, ts / 2f, px * 0.9f, dp0)
++        pattern.shader = BitmapShader(bmp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
++
++        sheen.shader = LinearGradient(0f, 0f, 0f, rho * 0.9f, intArrayOf(0x2EFFFFFF, 0x00FFFFFF), null, Shader.TileMode.CLAMP)
++
++        // Bingkai: tiga warna mengalir (diputar pelan).
++        edgeShader = SweepGradient(
++            a, rho,
++            intArrayOf(NX.CYAN, NX.ACCENT, NX.MAGENTA, NX.ACCENT, NX.CYAN, NX.BLUE, NX.CYAN),
++            floatArrayOf(0f, 0.18f, 0.36f, 0.54f, 0.72f, 0.88f, 1f)
+         )
+-        sheen.shader = RadialGradient(a, rho * 0.45f, a * 0.95f, intArrayOf(0x4A8A6CFF, 0x00000000), null, Shader.TileMode.CLAMP)
+-        edge.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(NX.ACCENT, NX.CYAN, NX.ACCENT), null, Shader.TileMode.CLAMP)
+-        track.color = 0x34FFFFFF
++        edge.shader = edgeShader
++
++        track.color = 0x30FFFFFF
+         track.strokeWidth = px
+         track.pathEffect = DashPathEffect(floatArrayOf(px * 3f, px * 7f), 0f)
+-        base.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(0x00000000, NX.CYAN, 0x00000000), null, Shader.TileMode.CLAMP)
++        base.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(0x00000000, NX.CYAN, NX.ACCENT, 0x00000000), floatArrayOf(0f, 0.35f, 0.65f, 1f), Shader.TileMode.CLAMP)
+         base.strokeWidth = px * 2f
+         runnerShader = SweepGradient(
+             a, rho,
+-            intArrayOf(0x00000000, 0x00000000, NX.CYAN, 0xFFFFFFFF.toInt(), NX.ACCENT, 0x00000000, 0x00000000),
+-            floatArrayOf(0f, 0.58f, 0.66f, 0.70f, 0.74f, 0.84f, 1f)
++            intArrayOf(0x00000000, 0x00000000, NX.CYAN, 0xFFFFFFFF.toInt(), NX.MAGENTA, 0x00000000, 0x00000000),
++            floatArrayOf(0f, 0.56f, 0.65f, 0.70f, 0.75f, 0.86f, 1f)
+         )
+         runner.shader = runnerShader
+-        runner.strokeWidth = px * 2.4f
++        runner.strokeWidth = px * 2.6f
++        tick.strokeWidth = px * 2f
++        tick.color = NX.CYAN
++        gem.color = 0xFFFFFFFF.toInt()
++        gemGlow.shader = RadialGradient(a, px * 4.5f, px * 16f, intArrayOf(0xA021E6FF.toInt(), 0x0021E6FF), null, Shader.TileMode.CLAMP)
+     }
+ 
+-    /** Mulai cahaya berputar di tepi (panggil saat panel tampil). */
++    /** Mulai gerak latar (panggil saat panel tampil). Memakai Choreographer, bukan ValueAnimator. */
+     fun start() {
+-        if (anim != null) return
+-        anim = ValueAnimator.ofFloat(0f, 360f).apply {
+-            duration = 4200
+-            repeatCount = ValueAnimator.INFINITE
+-            interpolator = LinearInterpolator()
+-            addUpdateListener { phase = it.animatedValue as Float; invalidateSelf() }
+-            start()
+-        }
++        if (loop != null) return
++        loop = Motion.loop(33) { ms -> timeMs = ms; invalidateSelf() }
+     }
+ 
+     fun stop() {
+-        anim?.cancel()
+-        anim = null
++        loop?.cancel()
++        loop = null
+     }
+ 
+     override fun draw(c: Canvas) {
+         val w = 2 * a
+         val h = rho + s
++        val t = timeMs / 1000f
++        val breathe = 0.78f + 0.22f * sin(t * 2f * PI.toFloat() / 3.2f)
++        val glowK = (0.25f + 0.75f * intro) * breathe
++
+         c.drawPath(path, fill)
+         c.save()
+         c.clipPath(path)
++        // aurora yang melayang pelan
++        c.save(); c.translate(sin(t * 0.45f) * px * 14f, sin(t * 0.33f) * px * 8f); c.drawRect(-w * 0.2f, -h * 0.2f, w * 1.2f, h * 1.2f, auroraA); c.restore()
++        c.save(); c.translate(sin(t * 0.38f + 2f) * px * 16f, sin(t * 0.5f + 1f) * px * 10f); c.drawRect(-w * 0.2f, -h * 0.2f, w * 1.2f, h * 1.2f, auroraB); c.restore()
++        c.save(); c.translate(sin(t * 0.3f + 4f) * px * 12f, 0f); c.drawRect(-w * 0.2f, 0f, w * 1.2f, h * 1.3f, auroraC); c.restore()
++        c.drawRect(0f, 0f, w, h, pattern)
+         c.drawRect(0f, 0f, w, h, sheen)
+         c.restore()
+-        // pendar bingkai neon (tiga lapis)
+-        edge.strokeWidth = px * 8f; edge.alpha = 22; c.drawPath(path, edge)
+-        edge.strokeWidth = px * 4f; edge.alpha = 55; c.drawPath(path, edge)
+-        edge.strokeWidth = px * 1.5f; edge.alpha = 255; c.drawPath(path, edge)
+-        // cahaya yang berputar
+-        if (anim != null) {
+-            runnerMatrix.setRotate(phase, a, rho)
+-            runnerShader.setLocalMatrix(runnerMatrix)
++
++        // pendar bingkai neon (empat lapis) + warna yang mengalir
++        rotM.setRotate(t * 28f, a, rho)
++        edgeShader.setLocalMatrix(rotM)
++        edge.strokeWidth = px * 12f; edge.alpha = (16 * glowK).toInt(); c.drawPath(path, edge)
++        edge.strokeWidth = px * 7f; edge.alpha = (34 * glowK).toInt(); c.drawPath(path, edge)
++        edge.strokeWidth = px * 3.6f; edge.alpha = (70 * glowK).toInt(); c.drawPath(path, edge)
++        edge.strokeWidth = px * 1.6f; edge.alpha = (150 + 105 * intro).toInt().coerceAtMost(255); c.drawPath(path, edge)
++
++        // komet cahaya yang mengitari tepi
++        if (loop != null) {
++            moveM.setRotate(t * 85f, a, rho)
++            runnerShader.setLocalMatrix(moveM)
++            runner.alpha = (255 * intro).toInt()
+             c.drawPath(path, runner)
+         }
+         c.drawPath(ring, track)
++
++        // sudut HUD, berlian puncak, garis dasar
++        tick.alpha = (200 * intro).toInt()
++        c.drawPath(brackets, tick)
++        gemGlow.alpha = (255 * glowK).toInt().coerceIn(0, 255)
++        c.drawCircle(a, px * 4.5f, px * 16f, gemGlow)
++        gem.alpha = (255 * intro).toInt()
++        c.drawPath(diamond, gem)
+         val y = h - px * 5f
+         c.drawLine(w * 0.28f, y, w * 0.72f, y, base)
+     }
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/GlowDrawable.kt b/app/src/main/java/com/nexus/asisten/overlay/GlowDrawable.kt
+index 5ddfcdd..dea41cf 100644
+--- a/app/src/main/java/com/nexus/asisten/overlay/GlowDrawable.kt
++++ b/app/src/main/java/com/nexus/asisten/overlay/GlowDrawable.kt
+@@ -21,8 +21,8 @@ class GlowDrawable(
+     private val px: Float,
+     edge1: Int = NX.ACCENT,
+     edge2: Int = NX.CYAN,
+-    private val top: Int = 0xE61B2450.toInt(),
+-    private val bottom: Int = 0xE60A1126.toInt()
++    private val top: Int = 0xEB1D1B58.toInt(),
++    private val bottom: Int = 0xEB080B22.toInt()
+ ) : Drawable() {
+ 
+     private val rect = RectF()
+@@ -43,7 +43,7 @@ class GlowDrawable(
+         val m = px * 3f
+         rect.set(b.left + m, b.top + m, b.right - m, b.bottom - m)
+         fill.shader = LinearGradient(0f, rect.top, 0f, rect.bottom, top, bottom, Shader.TileMode.CLAMP)
+-        sheen.shader = LinearGradient(0f, rect.top, 0f, rect.top + rect.height() * 0.55f, 0x26FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
++        sheen.shader = LinearGradient(0f, rect.top, 0f, rect.top + rect.height() * 0.55f, 0x30FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
+         edge.shader = LinearGradient(rect.left, 0f, rect.right, 0f, edgeFrom, edgeTo, Shader.TileMode.CLAMP)
+     }
+ 
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/OverlayService.kt b/app/src/main/java/com/nexus/asisten/overlay/OverlayService.kt
+index 63b970b..c7a6f16 100644
+--- a/app/src/main/java/com/nexus/asisten/overlay/OverlayService.kt
++++ b/app/src/main/java/com/nexus/asisten/overlay/OverlayService.kt
+@@ -13,6 +13,7 @@ import android.graphics.Rect
+ import android.graphics.Paint
+ import android.graphics.PixelFormat
+ import android.graphics.drawable.Drawable
++import android.os.Build
+ import android.os.Handler
+ import android.os.IBinder
+ import android.os.Looper
+@@ -47,6 +48,7 @@ import com.nexus.asisten.data.GameProfile
+ import com.nexus.asisten.data.GameRepo
+ import com.nexus.asisten.data.Prefs
+ import com.nexus.asisten.ui.Fx
++import com.nexus.asisten.ui.Motion
+ import com.nexus.asisten.ui.NX
+ import com.nexus.asisten.ui.circle
+ import com.nexus.asisten.ui.dp
+@@ -104,6 +106,8 @@ class OverlayService : Service(), PanelHost, RecordHost {
+     private var guardR: View? = null
+     private var bannerView: View? = null
+     private var recBar: RecordBar? = null
++    private var backBubble: BackBubble? = null
++    private var panelParams: WindowManager.LayoutParams? = null
+     private var hideUntil = 0L
+     private val othersPresent by lazy { Prefs.compatMode && GameConflict.installed(this).isNotEmpty() }
+ 
+@@ -191,7 +195,11 @@ class OverlayService : Service(), PanelHost, RecordHost {
+             inGame = it.poll() == pkg
+             if (inGame) awaySince = 0L else if (awaySince == 0L) awaySince = now
+         }
+-        if (!inGame && awaySince > 0 && now - awaySince > 90_000) { stopSelf(); return }
++        val bubbleUp = backBubble?.shown == true
++        if (inGame && bubbleUp && detector != null) backBubble?.hide()
++        // Selama gelembung "Kembali ke game" tampil, pengguna sedang memakai aplikasi lain: beri waktu lebih lama.
++        val awayLimit = if (bubbleUp) 20 * 60_000L else 90_000L
++        if (!inGame && awaySince > 0 && now - awaySince > awayLimit) { stopSelf(); return }
+         if (panel == null && now >= hideUntil) handleView?.visibility = if (inGame || now - awaySince < 3000) View.VISIBLE else View.GONE
+         if (inGame) {
+             session += dt
+@@ -347,12 +355,18 @@ class OverlayService : Service(), PanelHost, RecordHost {
+             Toast.makeText(applicationContext, "Gagal membuka panel Asisten", Toast.LENGTH_SHORT).show()
+             return
+         }
++        // Blur latar (Android 12+, bila perangkat mendukung) memberi kesan kaca premium di atas game.
++        val blur = Build.VERSION.SDK_INT >= 31 && Prefs.panelBlur && try { wm.isCrossWindowBlurEnabled } catch (_: Throwable) { false }
+         val params = overlayParams(
+             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
++            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
++                (if (blur) WindowManager.LayoutParams.FLAG_BLUR_BEHIND else 0)
+         )
++        if (blur && Build.VERSION.SDK_INT >= 31) params.blurBehindRadius = 0
+         try {
+             wm.addView(ui.root, params)
++            panelParams = params
++            if (blur) animateBlur(ui.root, params, 0, dp(16), 520)
+             panel = ui
+             ui.start()
+             handleView?.visibility = View.INVISIBLE
+@@ -369,12 +383,29 @@ class OverlayService : Service(), PanelHost, RecordHost {
+         if (p != null) {
+             fps.stop()
+             ping.stop()
+-            if (animate) p.animateOut { try { wm.removeView(p.root) } catch (_: Exception) {} }
++            if (animate) {
++                panelParams?.let { pp -> if (Build.VERSION.SDK_INT >= 31 && pp.blurBehindRadius > 0) animateBlur(p.root, pp, pp.blurBehindRadius, 0, 300) }
++                p.animateOut { try { wm.removeView(p.root) } catch (_: Exception) {} }
++            }
+             else try { wm.removeView(p.root) } catch (_: Exception) {}
+         }
+         handleView?.visibility = View.VISIBLE
+     }
+ 
++    private fun animateBlur(v: View, p: WindowManager.LayoutParams, from: Int, to: Int, dur: Long) {
++        if (Build.VERSION.SDK_INT < 31) return
++        var last = from
++        Motion.run(dur) { t ->
++            val r = (from + (to - from) * Motion.outCubic(t)).toInt()
++            // Perbarui jendela hanya bila radius berubah cukup besar, supaya tidak membebani game.
++            if (abs(r - last) >= 2 || t >= 1f) {
++                last = r
++                p.blurBehindRadius = r
++                try { wm.updateViewLayout(v, p) } catch (_: Exception) {}
++            }
++        }
++    }
++
+     override fun close() = closePanel()
+ 
+     // ---------- Crosshair & pelindung tepi ----------
+@@ -708,18 +739,31 @@ class OverlayService : Service(), PanelHost, RecordHost {
+         // Tunggu animasi tutup panel selesai supaya jendela baru langsung terlihat.
+         handler.postDelayed({
+             try {
+-                if (Prefs.floatingWindow) {
+-                    if (GameUtils.launchFloating(this, pkg, Prefs.floatSize)) toast("$name dibuka sebagai jendela mengambang")
+-                    else toast("HP belum mendukung jendela mengambang, $name dibuka layar penuh")
++                val canFloat = Prefs.floatingWindow && GameUtils.freeformSupported(this)
++                if (canFloat && GameUtils.launchFloating(this, pkg, Prefs.floatSize)) {
++                    toast("$name dibuka sebagai jendela mengambang")
+                 } else {
++                    // Tanpa izin atau pengaturan tambahan: buka penuh, lalu gelembung Nexus untuk kembali ke game.
+                     GameUtils.launch(this, pkg)
++                    showBackBubble()
+                 }
+             } catch (_: Exception) {
+-                try { GameUtils.launch(this, pkg) } catch (_: Exception) { toast("Gagal membuka $name") }
++                try { GameUtils.launch(this, pkg); showBackBubble() } catch (_: Exception) { toast("Gagal membuka $name") }
+             }
+         }, 300)
+     }
+ 
++    private fun showBackBubble() {
++        val b = backBubble ?: BackBubble(this, wm) { returnToGame() }.also { backBubble = it }
++        // Jangan tampilkan seketika: tunggu aplikasi tujuan benar-benar di depan supaya tidak ikut terhapus oleh deteksi "kembali ke game".
++        handler.postDelayed({ if (started) b.show(GameRepo.icon(this, pkg)) }, 1200)
++    }
++
++    private fun returnToGame() {
++        backBubble?.hide()
++        try { GameUtils.launch(this, pkg) } catch (_: Exception) { toast("Gagal kembali ke game") }
++    }
++
+     override fun floatSupported() = GameUtils.freeformSupported(this)
+ 
+     override fun openFloatHelp() = launchUi(SettingsActivity::class.java)
+@@ -749,6 +793,8 @@ class OverlayService : Service(), PanelHost, RecordHost {
+         closePanel(false)
+         recBar?.hide()
+         recBar = null
++        backBubble?.hide(true)
++        backBubble = null
+         hudInst?.release()
+         if (ScreenCaptureService.ready || ScreenCaptureService.recording) ScreenCaptureService.send(this, ScreenCaptureService.ACTION_END)
+         bannerView?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/PanelUi.kt b/app/src/main/java/com/nexus/asisten/overlay/PanelUi.kt
+index ec6555b..f225808 100644
+--- a/app/src/main/java/com/nexus/asisten/overlay/PanelUi.kt
++++ b/app/src/main/java/com/nexus/asisten/overlay/PanelUi.kt
+@@ -87,7 +87,9 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+     private val arcBtns = ArrayList<View>()
+     private val arcOffsets = ArrayList<Pair<Float, Float>>()
+     private var laidOut = false
++    private var lastNear = -1
+     private var closing = false
++    private var introRun: MutableList<Motion.Handle>? = null
+     private var tabW = 0
+ 
+     private var tvFps: TextView? = null
+@@ -103,9 +105,16 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+     private class Tile(val icon: Int, val label: String, val state: (() -> Boolean)?, val onClick: () -> Unit)
+ 
+     init {
+-        scrim.background = GradientDrawable(
+-            GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#1A000000"), Color.parseColor("#59000000"))
++        val shade = GradientDrawable(
++            GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.parseColor("#26000000"), Color.parseColor("#8C04050E"))
+         )
++        val rise = GradientDrawable().apply {
++            gradientType = GradientDrawable.RADIAL_GRADIENT
++            setGradientCenter(0.5f, 1.0f)
++            gradientRadius = 520f * ctx.resources.displayMetrics.density
++            colors = intArrayOf(withAlpha(NX.ACCENT, 0x5A), withAlpha(NX.CYAN, 0x16), 0)
++        }
++        scrim.background = android.graphics.drawable.LayerDrawable(arrayOf(shade, rise))
+         scrim.setOnClickListener { host.close() }
+         root.addView(scrim, FrameLayout.LayoutParams(MATCH, MATCH))
+     }
+@@ -145,7 +154,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+             showError(e)
+         }
+         // Jaring pengaman: kalau animasi masuk tidak berjalan (animasi dimatikan/dihemat sistem), paksa tampil.
+-        root.postDelayed({ ensureVisible() }, 900)
++        root.postDelayed({ ensureVisible() }, 1700)
+     }
+ 
+     private fun showError(e: Throwable) {
+@@ -173,9 +182,15 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+                 v.alpha = 1f; v.scaleX = 1f; v.scaleY = 1f; v.translationX = 0f; v.translationY = 0f
+             }
+         }
++        introRun?.forEach { it.cancel() }
++        introRun = null
++        dome?.intro = 1f
+         card?.let { fix(it) }
+         arcBtns.forEach { fix(it) }
+         origin?.let { fix(it); it.rotation = 0f }
++        pageFrames.getOrNull(0)?.let { f -> ((f.getChildAt(0) as? ScrollView)?.getChildAt(0) as? LinearLayout)?.let { col ->
++            for (i in 0 until col.childCount) fix(col.getChildAt(i))
++        } }
+         if (scrim.alpha < 0.99f) { scrim.animate().cancel(); scrim.alpha = 1f }
+     }
+ 
+@@ -322,8 +337,8 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+         head.addView(tabsRow)
+         val indWrap = FrameLayout(ctx)
+         tabIndicator = View(ctx)
+-        tabIndicator.background = gradientRounded(NX.ACCENT, NX.CYAN, ctx.dpf(2f))
+-        tabIndicator.glow(NX.CYAN, 4f)
++        tabIndicator.background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(NX.ACCENT, NX.CYAN, NX.MAGENTA)).also { it.cornerRadius = ctx.dpf(2f) }
++        tabIndicator.glow(NX.CYAN, 8f)
+         indWrap.addView(tabIndicator, FrameLayout.LayoutParams(tabW - ctx.dp(28), ctx.dp(3)).also { it.leftMargin = ctx.dp(14) })
+         head.add(indWrap, tabsW, WRAP)
+         frame.addView(head, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also {
+@@ -355,6 +370,10 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+         if (!::tabIndicator.isInitialized) return
+         tabIndicator.translationX = pos * tabW
+         val near = (pos + 0.5f).toInt().coerceIn(0, tabLabels.size - 1)
++        if (near != lastNear) {
++            if (lastNear >= 0 && laidOut) staggerPage(near, 60L)
++            lastNear = near
++        }
+         tabLabels.forEachIndexed { i, t -> t.setTextColor(if (i == near) NX.TEXT else NX.MUTED) }
+         pageFrames.forEachIndexed { i, f ->
+             val d = min(1f, kotlin.math.abs(pos - i))
+@@ -394,61 +413,137 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+         val disc = v.getChildAt(0) as FrameLayout
+         val r = ctx.dpf(23f)
+         disc.background = if (active)
+-            GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(NX.ACCENT_DEEP, NX.BLUE)).also {
++            GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(NX.ACCENT_DEEP, NX.BLUE, NX.CYAN)).also {
+                 it.shape = GradientDrawable.OVAL
+-                it.setStroke(1, withAlpha(Color.WHITE, 0x66))
++                it.setStroke(ctx.dp(1), withAlpha(Color.WHITE, 0x88))
+             }
+-        else NeonDrawable(Color.parseColor("#F0141A2E"), Color.parseColor("#F00A0D18"), r)
+-        disc.glow(if (active) NX.ACCENT else Color.TRANSPARENT, if (active) 10f else 4f)
+-        (disc.getChildAt(0) as ImageView).setColorFilter(if (active) Color.WHITE else NX.TEXT)
++        else NeonDrawable(Color.parseColor("#F2171E38"), Color.parseColor("#F20A0D1A"), r)
++        disc.glow(if (active) NX.CYAN else Color.TRANSPARENT, if (active) 12f else 4f)
++        (disc.getChildAt(0) as ImageView).setColorFilter(if (active) Color.WHITE else NX.CYAN)
+         (v.getChildAt(1) as TextView).setTextColor(if (active) NX.TEXT else NX.TEXT2)
+     }
+ 
+-    // ---------- Animasi ----------
++    // ---------- Animasi (Motion: tidak tergantung skala animator sistem) ----------
+     private fun playIn() {
++        val runs = ArrayList<Motion.Handle>()
++        introRun = runs
++        dome?.intro = 0f
+         dome?.start()
++
++        // Latar gelap + cahaya neon naik dari bawah.
+         scrim.alpha = 0f
+-        scrim.animate().alpha(1f).setDuration(240).start()
++        runs += Motion.run(320) { t -> scrim.alpha = Motion.outCubic(t) }
++
++        // Kubah: naik dari bawah dengan pegas, mengembang dari dasar-tengah, bingkai "menyala".
+         card?.let { c ->
++            val dy = ctx.dpf(150f)
+             c.alpha = 0f
+-            c.translationY = ctx.dpf(70f)
+-            c.scaleX = 0.96f
+-            c.scaleY = 0.96f
+-            c.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f).setStartDelay(70).setDuration(400)
+-                .setInterpolator(DecelerateInterpolator(1.7f)).start()
++            c.translationY = dy
++            c.scaleX = 0.86f
++            c.scaleY = 0.86f
++            runs += Motion.run(760, 40) { t ->
++                val e = Motion.spring(t)
++                c.alpha = Motion.outCubic((t * 2.4f).coerceAtMost(1f))
++                c.translationY = dy * (1f - e)
++                val sc = 0.86f + 0.14f * e
++                c.scaleX = sc
++                c.scaleY = sc
++            }
++            runs += Motion.run(900, 120) { t -> dome?.intro = Motion.outExpo(t) }
+         }
++
++        // Tombol busur terbuka seperti kipas: meluncur dari titik pusat sepanjang busur.
+         arcBtns.forEachIndexed { i, b ->
+             val (dx, dy) = arcOffsets[i]
+-            b.translationX = dx
+-            b.translationY = dy
+-            b.scaleX = 0.2f
+-            b.scaleY = 0.2f
+             b.alpha = 0f
+-            b.animate().translationX(0f).translationY(0f).scaleX(1f).scaleY(1f).alpha(1f)
+-                .setStartDelay(90L + i * 40L).setDuration(460).setInterpolator(OvershootInterpolator(1.5f)).start()
++            b.scaleX = 0.2f; b.scaleY = 0.2f
++            b.translationX = dx; b.translationY = dy
++            runs += Motion.run(680, 170L + i * 50L) { t ->
++                val e = Motion.spring(t)
++                b.translationX = dx * (1f - e)
++                b.translationY = dy * (1f - e)
++                val sc = 0.2f + 0.8f * e
++                b.scaleX = sc; b.scaleY = sc
++                b.alpha = Motion.outCubic((t * 2.6f).coerceAtMost(1f))
++            }
+         }
++
+         origin?.let { o ->
+-            o.scaleX = 0f
+-            o.scaleY = 0f
+-            o.rotation = -90f
+-            o.animate().scaleX(1f).scaleY(1f).rotation(0f).setDuration(380).setInterpolator(OvershootInterpolator(1.6f)).start()
++            o.scaleX = 0f; o.scaleY = 0f; o.rotation = -90f
++            runs += Motion.run(480, 120) { t ->
++                val e = Motion.outBack(t, 1.9f)
++                o.scaleX = e; o.scaleY = e
++                o.rotation = -90f * (1f - Motion.outCubic(t))
++            }
++        }
++
++        // Angka FPS "pop" lalu isi halaman Performa masuk berurutan.
++        tvFps?.let { f ->
++            f.scaleX = 0.5f; f.scaleY = 0.5f; f.alpha = 0f
++            runs += Motion.run(520, 330) { t ->
++                val e = Motion.outBack(t, 2.2f)
++                f.scaleX = 0.5f + 0.5f * e; f.scaleY = 0.5f + 0.5f * e
++                f.alpha = Motion.outCubic(t)
++            }
++        }
++        staggerPage(0, 380L, runs)
++        tabLabels.forEachIndexed { i, tv ->
++            tv.alpha = 0f
++            runs += Motion.run(420, 260L + i * 45L) { t -> tv.alpha = Motion.outCubic(t) }
++        }
++    }
++
++    /** Anak-anak halaman [page] naik berurutan (dipanggil saat panel dibuka dan saat pindah tab). */
++    private fun staggerPage(page: Int, base: Long, runs: MutableList<Motion.Handle>? = null) {
++        val col = (pageFrames.getOrNull(page)?.getChildAt(0) as? ScrollView)?.getChildAt(0) as? LinearLayout ?: return
++        val dy = ctx.dpf(22f)
++        for (i in 0 until col.childCount) {
++            val v = col.getChildAt(i)
++            v.alpha = 0f
++            v.translationY = dy
++            val h = Motion.run(520, base + i * 55L) { t ->
++                v.alpha = Motion.outCubic(t)
++                v.translationY = dy * (1f - Motion.outExpo(t))
++            }
++            runs?.add(h)
+         }
+     }
+ 
+-    /** Animasi keluar: busur menguncup ke tengah, kartu turun, lalu panggil [end]. */
++    /** Animasi keluar: busur menguncup ke tengah, kubah turun & mengecil, lalu panggil [end]. */
+     fun animateOut(end: () -> Unit) {
+         closing = true
++        introRun?.forEach { it.cancel() }
++        introRun = null
+         val n = arcBtns.size
+         arcBtns.forEachIndexed { i, b ->
+             val (dx, dy) = arcOffsets[i]
+-            b.animate().translationX(dx).translationY(dy).scaleX(0.2f).scaleY(0.2f).alpha(0f)
+-                .setStartDelay((n - 1 - i) * 20L).setDuration(240).setInterpolator(AccelerateInterpolator()).start()
++            val fa = b.alpha; val fx = b.translationX; val fy = b.translationY; val fs = b.scaleX
++            Motion.run(240, (n - 1 - i) * 18L) { t ->
++                val e = Motion.inCubic(t)
++                b.translationX = fx + (dx - fx) * e
++                b.translationY = fy + (dy - fy) * e
++                val sc = fs + (0.2f - fs) * e
++                b.scaleX = sc; b.scaleY = sc
++                b.alpha = fa * (1f - e)
++            }
+         }
+-        origin?.animate()?.scaleX(0f)?.scaleY(0f)?.rotation(90f)?.setDuration(240)?.start()
+-        card?.animate()?.alpha(0f)?.translationY(ctx.dpf(60f))?.setDuration(240)?.setInterpolator(AccelerateInterpolator())?.start()
+-        scrim.animate().alpha(0f).setDuration(300).start()
+-        // Hapus window lewat timer (bukan withEndAction) supaya pasti terhapus walau animasi dibatalkan.
+-        root.postDelayed({ end() }, 340)
++        origin?.let { o -> Motion.run(240) { t -> val e = 1f - Motion.inCubic(t); o.scaleX = e; o.scaleY = e; o.rotation = 90f * t } }
++        card?.let { c ->
++            val dy = ctx.dpf(110f)
++            val a0 = c.alpha; val y0 = c.translationY
++            Motion.run(300, 40) { t ->
++                val e = Motion.inCubic(t)
++                c.alpha = a0 * (1f - e)
++                c.translationY = y0 + (dy - y0) * e
++                val sc = 1f - 0.08f * e
++                c.scaleX = sc; c.scaleY = sc
++                dome?.intro = 1f - e
++            }
++        }
++        val s0 = scrim.alpha
++        Motion.run(320) { t -> scrim.alpha = s0 * (1f - Motion.outCubic(t)) }
++        // Hapus window lewat timer supaya pasti terhapus walau animasi dibatalkan.
++        root.postDelayed({ end() }, 360)
+     }
+ 
+     fun showTab(i: Int) {
+@@ -473,7 +568,9 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+         return Pair(sv, col)
+     }
+ 
+-    private fun glass(radius: Float = 18f): Drawable = rounded(withAlpha(Color.WHITE, 0x0D), ctx.dpf(radius), NX.LINE, 1)
++    private fun glass(radius: Float = 18f): Drawable =
++        GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(withAlpha(Color.WHITE, 0x16), withAlpha(Color.WHITE, 0x08)))
++            .also { it.cornerRadius = ctx.dpf(radius); it.setStroke(ctx.dp(1), NX.LINE) }
+ 
+     private fun statBlock(label: String, color: Int, sizeSp: Float): Pair<LinearLayout, TextView> {
+         val b = ctx.vbox()
+@@ -576,8 +673,8 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+     private fun styleTile(v: LinearLayout, active: Boolean) {
+         val r = ctx.dpf(16f)
+         val base: Drawable = if (active)
+-            gradientRounded(withAlpha(NX.ACCENT, 0x66), withAlpha(NX.BLUE, 0x33), r, GradientDrawable.Orientation.TL_BR)
+-                .also { it.setStroke(ctx.dp(1), NX.ACCENT) }
++            GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(withAlpha(NX.ACCENT, 0x77), withAlpha(NX.BLUE, 0x44), withAlpha(NX.CYAN, 0x30)))
++                .also { it.cornerRadius = r; it.setStroke(ctx.dp(1), withAlpha(NX.CYAN, 0xAA)) }
+         else glass(16f)
+         v.rippleBg(base, r)
+         (v.getChildAt(0) as ImageView).setColorFilter(if (active) NX.CYAN else NX.TEXT2)
+@@ -693,17 +790,22 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+         col.add(ctx.chipRow(listOf("Jendela mengambang", "Layar penuh"), if (Prefs.floatingWindow) 0 else 1) {
+             Prefs.floatingWindow = it == 0
+         })
+-        col.add(ctx.sectionTitle("Ukuran jendela"), t = 14, b = 8)
+-        col.add(ctx.chipRow(listOf("Kecil", "Sedang", "Besar"), Prefs.floatSize) { Prefs.floatSize = it })
+-
+-        if (!host.floatSupported()) {
+-            val warn = ctx.vbox(14, 12)
+-            warn.background = rounded(withAlpha(NX.WARN, 0x1F), ctx.dpf(16f), withAlpha(NX.WARN, 0x66), 1)
+-            warn.addView(ctx.tv("HP ini belum mengaktifkan mode jendela. Aplikasi akan dibuka layar penuh.", 12.5f, NX.TEXT))
+-            warn.add(ctx.tv("Lihat cara mengaktifkannya", 12.5f, NX.WARN, 700), t = 8)
+-            warn.setOnClickListener { host.openFloatHelp() }
+-            warn.pressFx(0.98f)
+-            col.add(warn, t = 14)
++        if (host.floatSupported() && Prefs.floatingWindow) {
++            col.add(ctx.sectionTitle("Ukuran jendela"), t = 14, b = 8)
++            col.add(ctx.chipRow(listOf("Kecil", "Sedang", "Besar"), Prefs.floatSize) { Prefs.floatSize = it })
++        } else {
++            // Tanpa izin atau pengaturan tambahan: aplikasi dibuka penuh, lalu gelembung Nexus membawa pulang ke game.
++            val tip = ctx.vbox(14, 12)
++            tip.background = GradientDrawable(
++                GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(withAlpha(NX.CYAN, 0x26), withAlpha(NX.ACCENT, 0x1A))
++            ).also { it.cornerRadius = ctx.dpf(16f); it.setStroke(ctx.dp(1), withAlpha(NX.CYAN, 0x77)) }
++            tip.addView(ctx.tv("Tanpa izin tambahan", 12f, NX.CYAN, 700).also { it.isAllCaps = true; it.letterSpacing = 0.12f })
++            tip.add(ctx.tv("Aplikasi dibuka di atas game. Ketuk gelembung Nexus yang muncul untuk langsung kembali ke game.", 12.5f, NX.TEXT), t = 6)
++            val more = ctx.tv("Mau jendela mengambang sungguhan? Lihat caranya", 12f, NX.MUTED, 500)
++            more.setOnClickListener { host.openFloatHelp() }
++            more.pressFx(0.98f)
++            tip.add(more, t = 8)
++            col.add(tip, t = 14)
+         }
+ 
+         col.add(ctx.sectionTitle("Aplikasi saya"), t = 18, b = 10)
+@@ -730,7 +832,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+             col.add(row, t = if (i == 0) 0 else 12)
+             i += 4
+         }
+-        col.add(ctx.tv("Ketuk aplikasi untuk membukanya di atas game.", 11.5f, NX.MUTED), t = 14, b = 10)
++        col.add(ctx.tv("Ketuk aplikasi untuk membukanya tanpa menutup game.", 11.5f, NX.MUTED), t = 14, b = 10)
+         return sv
+     }
+ 
+diff --git a/app/src/main/java/com/nexus/asisten/ui/Fx.kt b/app/src/main/java/com/nexus/asisten/ui/Fx.kt
+index e685572..c4a351c 100644
+--- a/app/src/main/java/com/nexus/asisten/ui/Fx.kt
++++ b/app/src/main/java/com/nexus/asisten/ui/Fx.kt
+@@ -58,12 +58,15 @@ object Fx {
+     }
+ 
+     fun animateIn(v: View) {
+-        v.alpha = 0f
+-        v.translationY = -v.context.dpf(24f)
+-        v.scaleX = 0.9f
+-        v.scaleY = 0.9f
+-        v.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f)
+-            .setDuration(280).setInterpolator(OvershootInterpolator(1.1f)).start()
++        val dy = v.context.dpf(24f)
++        Motion.run(420) { t ->
++            val e = Motion.spring(t)
++            v.alpha = Motion.outCubic((t * 2.2f).coerceAtMost(1f))
++            v.translationY = -dy * (1f - e)
++            val sc = 0.9f + 0.1f * e
++            v.scaleX = sc
++            v.scaleY = sc
++        }
+     }
+ 
+     fun animateOut(v: View, end: () -> Unit) {
+@@ -71,15 +74,18 @@ object Fx {
+             .setInterpolator(DecelerateInterpolator()).withEndAction(end).start()
+     }
+ 
+-    /** Anak-anak [container] muncul berurutan dari bawah sambil memudar masuk. */
++    /** Anak-anak [container] muncul berurutan dari bawah sambil memudar masuk (tidak tergantung skala animator sistem). */
+     fun stagger(container: ViewGroup, base: Long = 0L, step: Long = 55L) {
+         val dy = container.context.dpf(26f)
+         for (i in 0 until container.childCount) {
+             val v = container.getChildAt(i)
+             v.alpha = 0f
+             v.translationY = dy
+-            v.animate().alpha(1f).translationY(0f).setStartDelay(base + i * step).setDuration(380)
+-                .setInterpolator(DecelerateInterpolator(1.8f)).start()
++            Motion.run(520, base + i * step) { t ->
++                val e = Motion.outExpo(t)
++                v.alpha = Motion.outCubic(t)
++                v.translationY = dy * (1f - e)
++            }
+         }
+     }
+ 
+@@ -123,14 +129,24 @@ object Fx {
+ /** Efek tekan: mengecil sedikit saat disentuh, membal saat dilepas, plus getar halus. */
+ @SuppressLint("ClickableViewAccessibility")
+ fun View.pressFx(scale: Float = 0.95f) {
++    var run: Motion.Handle? = null
++    fun go(to: Float, dur: Long, spring: Boolean) {
++        run?.cancel()
++        val from = scaleX
++        run = Motion.run(dur) { t ->
++            val e = if (spring) Motion.spring(t) else Motion.outCubic(t)
++            val sc = from + (to - from) * e
++            scaleX = sc
++            scaleY = sc
++        }
++    }
+     setOnTouchListener { v, e ->
+         when (e.actionMasked) {
+             MotionEvent.ACTION_DOWN -> {
+                 if (Prefs.haptic) v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+-                v.animate().scaleX(scale).scaleY(scale).setDuration(90).start()
++                go(scale, 110, false)
+             }
+-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+-                v.animate().scaleX(1f).scaleY(1f).setDuration(200).setInterpolator(OvershootInterpolator(2.2f)).start()
++            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> go(1f, 380, true)
+         }
+         false
+     }
+diff --git a/app/src/main/java/com/nexus/asisten/ui/Motion.kt b/app/src/main/java/com/nexus/asisten/ui/Motion.kt
+new file mode 100644
+index 0000000..38d89da
+--- /dev/null
++++ b/app/src/main/java/com/nexus/asisten/ui/Motion.kt
+@@ -0,0 +1,106 @@
++package com.nexus.asisten.ui
++
++import android.view.Choreographer
++import kotlin.math.cos
++import kotlin.math.exp
++import kotlin.math.pow
++
++/**
++ * Mesin animasi sendiri berbasis Choreographer.
++ *
++ * Kenapa tidak pakai ViewPropertyAnimator/ValueAnimator? Keduanya tunduk pada "Skala durasi animator"
++ * di Opsi Pengembang dan mode Hemat Baterai. Banyak gamer mematikannya demi performa, akibatnya semua
++ * animasi langsung loncat ke akhir dan panel terlihat kaku. Motion membaca waktu frame langsung dari sistem,
++ * jadi animasi Nexus selalu berjalan halus, apa pun pengaturan HP.
++ */
++object Motion {
++
++    // ---------- Kurva gerak ----------
++    fun linear(t: Float) = t
++    fun outCubic(t: Float): Float { val x = 1f - t; return 1f - x * x * x }
++    fun inCubic(t: Float) = t * t * t
++    fun inOutCubic(t: Float): Float = if (t < 0.5f) 4f * t * t * t else 1f - (-2f * t + 2f).toDouble().pow(3.0).toFloat() / 2f
++    fun outExpo(t: Float): Float = if (t >= 1f) 1f else 1f - 2.0.pow(-10.0 * t).toFloat()
++    fun outBack(t: Float, s: Float = 1.7f): Float { val x = t - 1f; return x * x * ((s + 1f) * x + s) + 1f }
++
++    /** Pegas teredam: melampaui sedikit (~9%) lalu mengendap. Terasa "hidup" tanpa memantul berlebihan. */
++    fun spring(t: Float): Float = if (t >= 1f) 1f else (1.0 - exp(-7.0 * t) * cos(9.0 * t)).toFloat()
++
++    fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
++
++    // ---------- Animasi sekali jalan ----------
++    class Handle internal constructor(
++        private val dur: Long,
++        private val delay: Long,
++        private val frame: (Float) -> Unit,
++        private val end: (() -> Unit)?
++    ) : Choreographer.FrameCallback {
++        private var t0 = -1L
++        private var done = false
++
++        internal fun begin(): Handle {
++            Choreographer.getInstance().postFrameCallback(this)
++            return this
++        }
++
++        fun cancel() {
++            done = true
++            Choreographer.getInstance().removeFrameCallback(this)
++        }
++
++        override fun doFrame(frameTimeNanos: Long) {
++            if (done) return
++            if (t0 < 0) t0 = frameTimeNanos
++            val el = (frameTimeNanos - t0) / 1_000_000L - delay
++            if (el < 0) {
++                frame(0f)
++                Choreographer.getInstance().postFrameCallback(this)
++                return
++            }
++            val t = if (dur <= 0) 1f else (el.toFloat() / dur).coerceIn(0f, 1f)
++            frame(t)
++            if (t >= 1f) {
++                done = true
++                end?.invoke()
++            } else Choreographer.getInstance().postFrameCallback(this)
++        }
++    }
++
++    /** Jalankan [frame] dengan nilai 0..1 selama [durMs], setelah menunggu [delayMs]. Panggil dari thread utama. */
++    fun run(durMs: Long, delayMs: Long = 0L, end: (() -> Unit)? = null, frame: (Float) -> Unit): Handle =
++        Handle(durMs, delayMs, frame, end).begin()
++
++    // ---------- Loop tanpa akhir ----------
++    class Loop internal constructor(
++        private val minStepMs: Long,
++        private val tick: (Long) -> Unit
++    ) : Choreographer.FrameCallback {
++        private var t0 = -1L
++        private var last = -1000L
++        private var on = true
++
++        internal fun begin(): Loop {
++            Choreographer.getInstance().postFrameCallback(this)
++            return this
++        }
++
++        fun cancel() {
++            on = false
++            Choreographer.getInstance().removeFrameCallback(this)
++        }
++
++        override fun doFrame(frameTimeNanos: Long) {
++            if (!on) return
++            if (t0 < 0) t0 = frameTimeNanos
++            val ms = (frameTimeNanos - t0) / 1_000_000L
++            if (ms - last >= minStepMs) {
++                last = ms
++                tick(ms)
++            }
++            Choreographer.getInstance().postFrameCallback(this)
++        }
++    }
++
++    /** [tick] menerima milidetik sejak mulai. [minStepMs] membatasi laju (33 = ~30 fps, hemat saat game berjalan). */
++    fun loop(minStepMs: Long = 0L, tick: (Long) -> Unit): Loop = Loop(minStepMs, tick).begin()
++}
+diff --git a/app/src/main/java/com/nexus/asisten/ui/Ui.kt b/app/src/main/java/com/nexus/asisten/ui/Ui.kt
+index 57a5cee..5074aa2 100644
+--- a/app/src/main/java/com/nexus/asisten/ui/Ui.kt
++++ b/app/src/main/java/com/nexus/asisten/ui/Ui.kt
+@@ -26,19 +26,20 @@ import android.widget.LinearLayout
+ import android.widget.TextView
+ import androidx.appcompat.widget.SwitchCompat
+ 
+-/** Palet Nexus Gamer: hitam pekat, aksen neon violet + cyan. */
++/** Palet Nexus Gamer: hitam pekat, aksen neon violet + cyan + magenta. */
+ object NX {
+-    val BG = Color.parseColor("#04050A")
+-    val SURFACE_DEEP = Color.parseColor("#080A12")
+-    val SURFACE_HI = Color.parseColor("#131828")
++    val BG = Color.parseColor("#05060D")
++    val SURFACE_DEEP = Color.parseColor("#080A14")
++    val SURFACE_HI = Color.parseColor("#161B30")
+     val SURFACE = Color.parseColor("#0C101B")
+-    val SURFACE2 = Color.parseColor("#141A2B")
+-    val LINE = Color.parseColor("#24FFFFFF")
++    val SURFACE2 = Color.parseColor("#151B30")
++    val LINE = Color.parseColor("#26FFFFFF")
+     val TEXT = Color.parseColor("#F4F6FF")
+     val TEXT2 = Color.parseColor("#A8B1D0")
+     val MUTED = Color.parseColor("#667094")
+-    val ACCENT = Color.parseColor("#9D6BFF")
++    val ACCENT = Color.parseColor("#A66BFF")
+     val ACCENT_DEEP = Color.parseColor("#6A3DF0")
++    val MAGENTA = Color.parseColor("#FF4FD8")
+     val BLUE = Color.parseColor("#2B8CFF")
+     val CYAN = Color.parseColor("#21E6FF")
+     val GOOD = Color.parseColor("#3DF0A0")
+@@ -70,7 +71,13 @@ fun screenBg(): Drawable {
+         gradientRadius = 300f * d
+         colors = intArrayOf(withAlpha(NX.CYAN, 0x1C), 0)
+     }
+-    return LayerDrawable(arrayOf(base, glowA, glowB))
++    val glowC = GradientDrawable().apply {
++        gradientType = GradientDrawable.RADIAL_GRADIENT
++        setGradientCenter(0.95f, 0.98f)
++        gradientRadius = 320f * d
++        colors = intArrayOf(withAlpha(NX.MAGENTA, 0x22), 0)
++    }
++    return LayerDrawable(arrayOf(base, glowA, glowB, glowC))
+ }
+ 
+ /** Kartu kaca hitam dengan garis tepi gradien neon (stroke gradien tidak ada di GradientDrawable, jadi digambar manual). */
+@@ -83,12 +90,22 @@ class NeonDrawable(
+     private val strokePx: Float = 1.5f
+ ) : Drawable() {
+     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val sheen = Paint(Paint.ANTI_ALIAS_FLAG)
+     private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+     private val rect = RectF()
+ 
+     override fun onBoundsChange(b: android.graphics.Rect) {
+         fill.shader = LinearGradient(0f, b.top.toFloat(), 0f, b.bottom.toFloat(), top, bottom, Shader.TileMode.CLAMP)
+-        line.shader = LinearGradient(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat(), c1, c2, Shader.TileMode.CLAMP)
++        // Kilau kaca tipis di bagian atas kartu.
++        sheen.shader = LinearGradient(
++            0f, b.top.toFloat(), 0f, b.top + b.height() * 0.5f,
++            0x1AFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP
++        )
++        // Tepi neon tiga warna: violet -> cyan -> magenta, mengalir diagonal.
++        line.shader = LinearGradient(
++            b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat(),
++            intArrayOf(c1, c2, withAlpha(NX.MAGENTA, 0x55)), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
++        )
+         line.strokeWidth = strokePx
+     }
+ 
+@@ -96,12 +113,13 @@ class NeonDrawable(
+         rect.set(bounds)
+         rect.inset(strokePx / 2f, strokePx / 2f)
+         c.drawRoundRect(rect, radius, radius, fill)
++        c.drawRoundRect(rect, radius, radius, sheen)
+         c.drawRoundRect(rect, radius, radius, line)
+     }
+ 
+     override fun getOutline(outline: Outline) = outline.setRoundRect(bounds, radius)
+-    override fun setAlpha(alpha: Int) { fill.alpha = alpha; line.alpha = alpha }
+-    override fun setColorFilter(cf: ColorFilter?) { fill.colorFilter = cf; line.colorFilter = cf }
++    override fun setAlpha(alpha: Int) { fill.alpha = alpha; sheen.alpha = alpha; line.alpha = alpha }
++    override fun setColorFilter(cf: ColorFilter?) { fill.colorFilter = cf; sheen.colorFilter = cf; line.colorFilter = cf }
+     @Deprecated("Deprecated in Java")
+     override fun getOpacity() = PixelFormat.TRANSLUCENT
+ }
+@@ -190,13 +208,23 @@ fun Context.card(radiusDp: Int = 22, color: Int = NX.SURFACE): LinearLayout = Li
+     orientation = LinearLayout.VERTICAL
+     val r = dpf(radiusDp.toFloat())
+     background = if (color == NX.SURFACE)
+-        NeonDrawable(Color.parseColor("#F0111729"), Color.parseColor("#F00A0D17"), r, strokePx = dpf(1.2f))
++        NeonDrawable(Color.parseColor("#F2131A33"), Color.parseColor("#F20A0D1A"), r, strokePx = dpf(1.3f))
+     else rounded(color, r, NX.LINE, 1)
+     clipToOutline = false
+ }
+ 
+ fun Context.sectionTitle(text: String): TextView =
+-    tv(text, 11f, NX.ACCENT, 700).also { it.isAllCaps = true; it.letterSpacing = 0.16f }
++    tv(text, 11f, NX.CYAN, 700).also {
++        it.isAllCaps = true
++        it.letterSpacing = 0.18f
++        // Penanda gradien kecil di depan judul bagian.
++        val bar = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(NX.CYAN, NX.ACCENT)).apply {
++            cornerRadius = dpf(2f)
++            setSize(dp(3), dp(12))
++        }
++        it.setCompoundDrawablesWithIntrinsicBounds(bar, null, null, null)
++        it.compoundDrawablePadding = dp(8)
++    }
+ 
+ fun Context.chip(text: String, selected: Boolean, accent: Int = NX.ACCENT, onClick: () -> Unit): TextView {
+     val c = tv(text, 12.5f, if (selected) Color.WHITE else NX.TEXT2, if (selected) 700 else 500)
+@@ -204,11 +232,11 @@ fun Context.chip(text: String, selected: Boolean, accent: Int = NX.ACCENT, onCli
+     c.setPadding(dp(12), dp(11), dp(12), dp(11))
+     val r = dpf(14f)
+     val base = if (selected)
+-        gradientRounded(accent, withAlpha(accent, 0xB0), r, GradientDrawable.Orientation.TL_BR)
+-            .also { it.setStroke(1, withAlpha(Color.WHITE, 0x55)) }
++        GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(accent, withAlpha(accent, 0xA0), withAlpha(NX.BLUE, 0xB0)))
++            .also { it.cornerRadius = r; it.setStroke(1, withAlpha(Color.WHITE, 0x66)) }
+     else rounded(NX.SURFACE2, r, NX.LINE, 1)
+     c.rippleBg(base, r)
+-    if (selected) c.glow(accent, 6f)
++    if (selected) c.glow(accent, 8f)
+     c.setOnClickListener { onClick() }
+     return c
+ }
+@@ -239,15 +267,15 @@ fun Context.chipRow(
+ fun Context.gradientButton(text: String, onClick: () -> Unit): TextView {
+     val b = tv(text, 15f, Color.WHITE, 700)
+     b.isAllCaps = true
+-    b.letterSpacing = 0.08f
++    b.letterSpacing = 0.12f
+     b.gravity = Gravity.CENTER
+     b.setPadding(dp(20), dp(15), dp(20), dp(15))
+     val r = dpf(16f)
+     b.rippleBg(
+-        gradientRounded(NX.ACCENT_DEEP, NX.BLUE, r, GradientDrawable.Orientation.LEFT_RIGHT)
+-            .also { it.setStroke(1, withAlpha(Color.WHITE, 0x44)) }, r
++        GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(NX.ACCENT_DEEP, NX.BLUE, NX.CYAN))
++            .also { it.cornerRadius = r; it.setStroke(1, withAlpha(Color.WHITE, 0x55)) }, r
+     )
+-    b.glow(NX.ACCENT, 12f)
++    b.glow(NX.ACCENT, 14f)
+     b.setOnClickListener { onClick() }
+     return b
+ }
+@@ -259,7 +287,7 @@ fun Context.ghostButton(text: String, onClick: () -> Unit): TextView {
+     b.gravity = Gravity.CENTER
+     b.setPadding(dp(18), dp(14), dp(18), dp(14))
+     val r = dpf(16f)
+-    b.rippleBg(rounded(withAlpha(Color.WHITE, 0x0A), r, withAlpha(NX.ACCENT, 0x88), dp(1)), r)
++    b.rippleBg(rounded(withAlpha(Color.WHITE, 0x0C), r, withAlpha(NX.CYAN, 0x77), dp(1)), r)
+     b.setOnClickListener { onClick() }
+     return b
+ }
+@@ -268,7 +296,7 @@ fun Context.styledSwitch(checked: Boolean, onChange: (Boolean) -> Unit): SwitchC
+     val sw = SwitchCompat(this)
+     val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
+     sw.thumbTintList = ColorStateList(states, intArrayOf(Color.WHITE, NX.TEXT2))
+-    sw.trackTintList = ColorStateList(states, intArrayOf(NX.ACCENT, NX.SURFACE2))
++    sw.trackTintList = ColorStateList(states, intArrayOf(NX.ACCENT_DEEP, NX.SURFACE2))
+     sw.isChecked = checked
+     sw.setOnCheckedChangeListener { _, c -> onChange(c) }
+     return sw
+@@ -299,8 +327,9 @@ fun Context.linkRow(title: String, sub: String?, iconRes: Int, onClick: () -> Un
+     val row = hbox()
+     row.setPadding(dp(16), dp(14), dp(12), dp(14))
+     val badge = android.widget.FrameLayout(this)
+-    badge.background = rounded(withAlpha(NX.ACCENT, 0x26), dpf(12f), withAlpha(NX.ACCENT, 0x44), 1)
+-    badge.addView(icon(iconRes, NX.ACCENT, 20), android.widget.FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
++    badge.background = gradientRounded(withAlpha(NX.ACCENT, 0x44), withAlpha(NX.CYAN, 0x22), dpf(12f), GradientDrawable.Orientation.TL_BR)
++        .also { it.setStroke(1, withAlpha(NX.ACCENT, 0x77)) }
++    badge.addView(icon(iconRes, NX.CYAN, 20), android.widget.FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+     row.add(badge, dp(38), dp(38), 0f, 0, 0, 14, 0)
+     val t = vbox()
+     t.add(tv(title, 15f, NX.TEXT, 500))
+diff --git a/app/src/main/res/anim/nx_back_enter.xml b/app/src/main/res/anim/nx_back_enter.xml
+index 11ba81a..7337517 100644
+--- a/app/src/main/res/anim/nx_back_enter.xml
++++ b/app/src/main/res/anim/nx_back_enter.xml
+@@ -1,6 +1,10 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <set xmlns:android="http://schemas.android.com/apk/res/android" android:shareInterpolator="false">
+-    <alpha android:fromAlpha="0.0" android:toAlpha="1.0" android:duration="240" />
+-    <scale android:fromXScale="1.03" android:toXScale="1.0" android:fromYScale="1.03" android:toYScale="1.0"
+-        android:pivotX="50%" android:pivotY="50%" android:duration="260" />
++    <translate android:fromXDelta="-5%" android:toXDelta="0%" android:duration="400"
++        android:interpolator="@android:interpolator/decelerate_quint" />
++    <alpha android:fromAlpha="0.0" android:toAlpha="1.0" android:duration="300"
++        android:interpolator="@android:interpolator/decelerate_cubic" />
++    <scale android:fromXScale="0.96" android:toXScale="1.0" android:fromYScale="0.96" android:toYScale="1.0"
++        android:pivotX="50%" android:pivotY="50%" android:duration="400"
++        android:interpolator="@android:interpolator/decelerate_quint" />
+ </set>
+diff --git a/app/src/main/res/anim/nx_back_exit.xml b/app/src/main/res/anim/nx_back_exit.xml
+index 13eb741..698292d 100644
+--- a/app/src/main/res/anim/nx_back_exit.xml
++++ b/app/src/main/res/anim/nx_back_exit.xml
+@@ -1,5 +1,10 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <set xmlns:android="http://schemas.android.com/apk/res/android" android:shareInterpolator="false">
+-    <translate android:fromYDelta="0%" android:toYDelta="6%" android:duration="240" />
+-    <alpha android:fromAlpha="1.0" android:toAlpha="0.0" android:duration="220" />
++    <translate android:fromXDelta="0%" android:toXDelta="7%" android:duration="340"
++        android:interpolator="@android:interpolator/accelerate_cubic" />
++    <alpha android:fromAlpha="1.0" android:toAlpha="0.0" android:duration="260"
++        android:interpolator="@android:interpolator/accelerate_cubic" />
++    <scale android:fromXScale="1.0" android:toXScale="1.04" android:fromYScale="1.0" android:toYScale="1.04"
++        android:pivotX="50%" android:pivotY="50%" android:duration="340"
++        android:interpolator="@android:interpolator/accelerate_cubic" />
+ </set>
+diff --git a/app/src/main/res/anim/nx_enter.xml b/app/src/main/res/anim/nx_enter.xml
+index 8dd9cfb..4c2c02c 100644
+--- a/app/src/main/res/anim/nx_enter.xml
++++ b/app/src/main/res/anim/nx_enter.xml
+@@ -1,7 +1,10 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <set xmlns:android="http://schemas.android.com/apk/res/android" android:shareInterpolator="false">
+-    <translate android:fromYDelta="6%" android:toYDelta="0%" android:duration="320" android:interpolator="@android:interpolator/decelerate_cubic" />
+-    <alpha android:fromAlpha="0.0" android:toAlpha="1.0" android:duration="280" />
+-    <scale android:fromXScale="0.97" android:toXScale="1.0" android:fromYScale="0.97" android:toYScale="1.0"
+-        android:pivotX="50%" android:pivotY="50%" android:duration="320" android:interpolator="@android:interpolator/decelerate_cubic" />
++    <translate android:fromXDelta="7%" android:toXDelta="0%" android:duration="420"
++        android:interpolator="@android:interpolator/decelerate_quint" />
++    <alpha android:fromAlpha="0.0" android:toAlpha="1.0" android:duration="300"
++        android:interpolator="@android:interpolator/decelerate_cubic" />
++    <scale android:fromXScale="1.04" android:toXScale="1.0" android:fromYScale="1.04" android:toYScale="1.0"
++        android:pivotX="50%" android:pivotY="50%" android:duration="460"
++        android:interpolator="@android:interpolator/decelerate_quint" />
+ </set>
+diff --git a/app/src/main/res/anim/nx_exit.xml b/app/src/main/res/anim/nx_exit.xml
+index 27cecfd..00d2323 100644
+--- a/app/src/main/res/anim/nx_exit.xml
++++ b/app/src/main/res/anim/nx_exit.xml
+@@ -1,6 +1,10 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <set xmlns:android="http://schemas.android.com/apk/res/android" android:shareInterpolator="false">
+-    <alpha android:fromAlpha="1.0" android:toAlpha="0.0" android:duration="200" />
+-    <scale android:fromXScale="1.0" android:toXScale="1.03" android:fromYScale="1.0" android:toYScale="1.03"
+-        android:pivotX="50%" android:pivotY="50%" android:duration="200" />
++    <translate android:fromXDelta="0%" android:toXDelta="-5%" android:duration="380"
++        android:interpolator="@android:interpolator/decelerate_cubic" />
++    <alpha android:fromAlpha="1.0" android:toAlpha="0.0" android:duration="260"
++        android:interpolator="@android:interpolator/accelerate_cubic" />
++    <scale android:fromXScale="1.0" android:toXScale="0.96" android:fromYScale="1.0" android:toYScale="0.96"
++        android:pivotX="50%" android:pivotY="50%" android:duration="380"
++        android:interpolator="@android:interpolator/decelerate_cubic" />
+ </set>
+diff --git a/app/src/main/res/drawable/ic_add.xml b/app/src/main/res/drawable/ic_add.xml
+index d62ada0..e2e477f 100644
+--- a/app/src/main/res/drawable/ic_add.xml
++++ b/app/src/main/res/drawable/ic_add.xml
+@@ -1,5 +1,6 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,5 V19 M5,12 H19"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_arrow_right.xml b/app/src/main/res/drawable/ic_arrow_right.xml
+index 0d8e1f0..82a4be3 100644
+--- a/app/src/main/res/drawable/ic_arrow_right.xml
++++ b/app/src/main/res/drawable/ic_arrow_right.xml
+@@ -1,5 +1,6 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M8.59,16.59L13.17,12 8.59,7.41 10,6l6,6 -6,6z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M9,5 L16,12 L9,19"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_back.xml b/app/src/main/res/drawable/ic_back.xml
+index 2ac9071..6a70507 100644
+--- a/app/src/main/res/drawable/ic_back.xml
++++ b/app/src/main/res/drawable/ic_back.xml
+@@ -1,5 +1,6 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M20,11H7.83l5.59,-5.59L12,4l-8,8 8,8 1.41,-1.41L7.83,13H20v-2z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M15,5 L8,12 L15,19"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_battery.xml b/app/src/main/res/drawable/ic_battery.xml
+index 7326b93..b761721 100644
+--- a/app/src/main/res/drawable/ic_battery.xml
++++ b/app/src/main/res/drawable/ic_battery.xml
+@@ -1,5 +1,10 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M15.67,4H14V2h-4v2H8.33C7.6,4 7,4.6 7,5.33v15.33C7,21.4 7.6,22 8.33,22h7.33c0.74,0 1.34,-0.6 1.34,-1.33V5.33C17,4.6 16.4,4 15.67,4z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M6.5,6.5 H17.5 A1,1 0 0 1 18.5,7.5 V19.5 A1,1 0 0 1 17.5,20.5 H6.5 A1,1 0 0 1 5.5,19.5 V7.5 A1,1 0 0 1 6.5,6.5 Z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M10,3.4 H14"/>
++    <path android:fillColor="#FFFFFF" android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineJoin="round" android:strokeLineCap="round"
++        android:pathData="M12.8,9.4 L9.6,14 H12.4 L11.4,17.6 L14.8,12.6 H12 Z"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_bell.xml b/app/src/main/res/drawable/ic_bell.xml
+index 8f7faaf..b1da54e 100644
+--- a/app/src/main/res/drawable/ic_bell.xml
++++ b/app/src/main/res/drawable/ic_bell.xml
+@@ -1,5 +1,10 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M12,22c1.1,0 2,-0.9 2,-2h-4c0,1.1 0.89,2 2,2zM18,16v-5c0,-3.07 -1.64,-5.64 -4.5,-6.32V4c0,-0.83 -0.67,-1.5 -1.5,-1.5s-1.5,0.67 -1.5,1.5v0.68C7.63,5.36 6,7.92 6,11v5l-2,2v1h16v-1l-2,-2z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M6,17 V11 A6,6 0 0 1 18,11 V17 L20,19 H4 Z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M10,21.6 H14"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,3.2 V5"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_bolt.xml b/app/src/main/res/drawable/ic_bolt.xml
+index 8e7365f..c773e2e 100644
+--- a/app/src/main/res/drawable/ic_bolt.xml
++++ b/app/src/main/res/drawable/ic_bolt.xml
+@@ -1,5 +1,6 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M7,2v11h3v9l7,-12h-4l4,-8z"/>
++    <path android:fillColor="#FFFFFF" android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineJoin="round" android:strokeLineCap="round"
++        android:pathData="M13.2,2.5 L4.8,13.4 H10.6 L9.6,21.5 L19.2,9.8 H13.4 Z"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_brightness.xml b/app/src/main/res/drawable/ic_brightness.xml
+index 2a09626..dda7aef 100644
+--- a/app/src/main/res/drawable/ic_brightness.xml
++++ b/app/src/main/res/drawable/ic_brightness.xml
+@@ -1,5 +1,8 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M20,8.69V4h-4.69L12,0.69 8.69,4H4v4.69L0.69,12 4,15.31V20h4.69L12,23.31 15.31,20H20v-4.69L23.31,12 20,8.69zM12,18c-3.31,0 -6,-2.69 -6,-6s2.69,-6 6,-6 6,2.69 6,6 -2.69,6 -6,6zM12,8c-2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4 -1.79,-4 -4,-4z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M7.8,12 a4.2,4.2 0 1 0 8.4,0 a4.2,4.2 0 1 0 -8.4,0"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,2.5 V5 M12,19 V21.5 M2.5,12 H5 M19,12 H21.5 M5.3,5.3 L7,7 M17,17 L18.7,18.7 M5.3,18.7 L7,17 M17,7 L18.7,5.3"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_check.xml b/app/src/main/res/drawable/ic_check.xml
+index 27bae42..0d49d13 100644
+--- a/app/src/main/res/drawable/ic_check.xml
++++ b/app/src/main/res/drawable/ic_check.xml
+@@ -1,5 +1,6 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M9,16.17L4.83,12l-1.42,1.41L9,19 21,7l-1.41,-1.41z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M5,12.5 L10,17.5 L19,7"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_close.xml b/app/src/main/res/drawable/ic_close.xml
+index f090734..23d8d6e 100644
+--- a/app/src/main/res/drawable/ic_close.xml
++++ b/app/src/main/res/drawable/ic_close.xml
+@@ -1,5 +1,6 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M19,6.41L17.59,5 12,10.59 6.41,5 5,6.41 10.59,12 5,17.59 6.41,19 12,13.41 17.59,19 19,17.59 13.41,12z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M6,6 L18,18 M18,6 L6,18"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_crosshair.xml b/app/src/main/res/drawable/ic_crosshair.xml
+index 35871be..5563273 100644
+--- a/app/src/main/res/drawable/ic_crosshair.xml
++++ b/app/src/main/res/drawable/ic_crosshair.xml
+@@ -1,5 +1,9 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M12,8c-2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4 -1.79,-4 -4,-4zM20.94,11c-0.46,-4.17 -3.77,-7.48 -7.94,-7.94V1h-2v2.06C6.83,3.52 3.52,6.83 3.06,11H1v2h2.06c0.46,4.17 3.77,7.48 7.94,7.94V23h2v-2.06c4.17,-0.46 7.48,-3.77 7.94,-7.94H23v-2h-2.06zM12,19c-3.87,0 -7,-3.13 -7,-7s3.13,-7 7,-7 7,3.13 7,7 -3.13,7 -7,7z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M5.6,12 a6.4,6.4 0 1 0 12.8,0 a6.4,6.4 0 1 0 -12.8,0"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,2 V7 M12,17 V22 M2,12 H7 M17,12 H22"/>
++    <path android:fillColor="#FFFFFF" android:pathData="M10.5,12 a1.5,1.5 0 1 0 3.0,0 a1.5,1.5 0 1 0 -3.0,0"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_focus.xml b/app/src/main/res/drawable/ic_focus.xml
+index a3c08f6..8907175 100644
+--- a/app/src/main/res/drawable/ic_focus.xml
++++ b/app/src/main/res/drawable/ic_focus.xml
+@@ -1,5 +1,9 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M12,8c-2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4 -1.79,-4 -4,-4zM5,15H3v4c0,1.1 0.9,2 2,2h4v-2H5v-4zM5,5h4V3H5c-1.1,0 -2,0.9 -2,2v4h2V5zM19,3h-4v2h4v4h2V5c0,-1.1 -0.9,-2 -2,-2zM19,19h-4v2h4c1.1,0 2,-0.9 2,-2v-4h-2v4z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M4,9 V5 A1,1 0 0 1 5,4 H9 M15,4 H19 A1,1 0 0 1 20,5 V9 M20,15 V19 A1,1 0 0 1 19,20 H15 M9,20 H5 A1,1 0 0 1 4,19 V15"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M8.8,12 a3.2,3.2 0 1 0 6.4,0 a3.2,3.2 0 1 0 -6.4,0"/>
++    <path android:fillColor="#FFFFFF" android:pathData="M10.9,12 a1.1,1.1 0 1 0 2.2,0 a1.1,1.1 0 1 0 -2.2,0"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_folder_star.xml b/app/src/main/res/drawable/ic_folder_star.xml
+index 400f5f1..47b3f62 100644
+--- a/app/src/main/res/drawable/ic_folder_star.xml
++++ b/app/src/main/res/drawable/ic_folder_star.xml
+@@ -1,5 +1,8 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M20,6h-8l-2,-2H4c-1.1,0 -1.99,0.9 -1.99,2L2,18c0,1.1 0.9,2 2,2h16c1.1,0 2,-0.9 2,-2V8c0,-1.1 -0.9,-2 -2,-2zM17.94,17L15,15.28 12.06,17l0.78,-3.33 -2.59,-2.24 3.41,-0.29L15,8l1.34,3.14 3.41,0.29 -2.59,2.24 0.78,3.33z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M4.5,5 H9 L11.4,7.6 H19.5 A1.5,1.5 0 0 1 21,9.1 V18 A1.5,1.5 0 0 1 19.5,19.5 H4.5 A1.5,1.5 0 0 1 3,18 V6.5 A1.5,1.5 0 0 1 4.5,5 Z"/>
++    <path android:fillColor="#FFFFFF" android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineJoin="round" android:strokeLineCap="round"
++        android:pathData="M12,10.6 L12.9,12.5 L15,12.8 L13.5,14.3 L13.9,16.4 L12,15.4 L10.1,16.4 L10.5,14.3 L9,12.8 L11.1,12.5 Z"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_gamepad.xml b/app/src/main/res/drawable/ic_gamepad.xml
+index a01772e..a330a04 100644
+--- a/app/src/main/res/drawable/ic_gamepad.xml
++++ b/app/src/main/res/drawable/ic_gamepad.xml
+@@ -1,5 +1,10 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M21,6H3c-1.1,0 -2,0.9 -2,2v8c0,1.1 0.9,2 2,2h18c1.1,0 2,-0.9 2,-2V8c0,-1.1 -0.9,-2 -2,-2zM11,13H8v3H6v-3H3v-2h3V8h2v3h3v2zM15.5,15c-0.83,0 -1.5,-0.67 -1.5,-1.5s0.67,-1.5 1.5,-1.5 1.5,0.67 1.5,1.5 -0.67,1.5 -1.5,1.5zM19.5,12c-0.83,0 -1.5,-0.67 -1.5,-1.5S18.67,9 19.5,9s1.5,0.67 1.5,1.5 -0.67,1.5 -1.5,1.5z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M7,8 H17 A5,5 0 0 1 21.7,14.6 L20.8,17.6 A2.4,2.4 0 0 1 16.4,18.3 L15.2,16 H8.8 L7.6,18.3 A2.4,2.4 0 0 1 3.2,17.6 L2.3,14.6 A5,5 0 0 1 7,8 Z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M7.5,10.6 V14.2 M5.7,12.4 H9.3"/>
++    <path android:fillColor="#FFFFFF" android:pathData="M15.299999999999999,11.4 a1.1,1.1 0 1 0 2.2,0 a1.1,1.1 0 1 0 -2.2,0"/>
++    <path android:fillColor="#FFFFFF" android:pathData="M17.5,13.6 a1.1,1.1 0 1 0 2.2,0 a1.1,1.1 0 1 0 -2.2,0"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_globe.xml b/app/src/main/res/drawable/ic_globe.xml
+index f72da74..91d72f8 100644
+--- a/app/src/main/res/drawable/ic_globe.xml
++++ b/app/src/main/res/drawable/ic_globe.xml
+@@ -1,5 +1,10 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM4,12c0,-0.61 0.08,-1.21 0.21,-1.78L8.99,15v1c0,1.1 0.9,2 2,2v1.93C7.06,19.43 4,16.07 4,12zM17.89,17.4c-0.26,-0.81 -1,-1.4 -1.9,-1.4h-1v-3c0,-0.55 -0.45,-1 -1,-1h-6v-2h2c0.55,0 1,-0.45 1,-1V7h2c1.1,0 2,-0.9 2,-2v-0.41C17.92,5.77 20,8.65 20,12c0,2.08 -0.81,3.98 -2.11,5.4z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M3,12 a9,9 0 1 0 18,0 a9,9 0 1 0 -18,0"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M3,12 H21"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,3 C15.4,6.2 15.4,17.8 12,21 C8.6,17.8 8.6,6.2 12,3"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_grid.xml b/app/src/main/res/drawable/ic_grid.xml
+index 35b16c5..b7cf228 100644
+--- a/app/src/main/res/drawable/ic_grid.xml
++++ b/app/src/main/res/drawable/ic_grid.xml
+@@ -1,5 +1,6 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M3,3v8h8V3H3zM9,9H5V5h4v4zM3,13v8h8v-8H3zM9,19H5v-4h4v4zM13,3v8h8V3h-8zM19,9h-4V5h4v4zM13,13v8h8v-8h-8zM19,19h-4v-4h4v4z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M4.5,4.5 H10 V10 H4.5 Z M14,4.5 H19.5 V10 H14 Z M4.5,14 H10 V19.5 H4.5 Z M14,14 H19.5 V19.5 H14 Z"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_hand.xml b/app/src/main/res/drawable/ic_hand.xml
+index 532c550..febb527 100644
+--- a/app/src/main/res/drawable/ic_hand.xml
++++ b/app/src/main/res/drawable/ic_hand.xml
+@@ -1,5 +1,8 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M9,11.24V7.5C9,6.12 10.12,5 11.5,5S14,6.12 14,7.5v3.74c1.21,-0.81 2,-2.18 2,-3.74C16,5.01 13.99,3 11.5,3S7,5.01 7,7.5c0,1.56 0.79,2.93 2,3.74zM18.84,15.87l-4.54,-2.26c-0.17,-0.07 -0.35,-0.11 -0.54,-0.11H13v-6c0,-0.83 -0.67,-1.5 -1.5,-1.5S10,6.67 10,7.5v10.74l-3.43,-0.72c-0.08,-0.01 -0.15,-0.03 -0.24,-0.03 -0.31,0 -0.59,0.13 -0.79,0.33l-0.79,0.8 4.94,4.94c0.27,0.27 0.65,0.44 1.06,0.44h6.79c0.75,0 1.33,-0.55 1.44,-1.28l0.75,-5.27c0.01,-0.07 0.02,-0.14 0.02,-0.2 0,-0.62 -0.38,-1.16 -0.91,-1.38z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,2.6 L19.8,5.6 V11 C19.8,15.9 16.5,19.7 12,21.4 C7.5,19.7 4.2,15.9 4.2,11 V5.6 Z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M8.6,12 L11,14.4 L15.6,9.6"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_launcher_bg.xml b/app/src/main/res/drawable/ic_launcher_bg.xml
+new file mode 100644
+index 0000000..9d3a762
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_launcher_bg.xml
+@@ -0,0 +1,32 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:aapt="http://schemas.android.com/aapt"
++    android:width="108dp" android:height="108dp"
++    android:viewportWidth="108" android:viewportHeight="108">
++    <path android:pathData="M0,0h108v108h-108z">
++        <aapt:attr name="android:fillColor">
++            <gradient android:type="linear" android:startX="0" android:startY="0" android:endX="108" android:endY="108">
++                <item android:offset="0" android:color="#FF22145E"/>
++                <item android:offset="0.5" android:color="#FF0C0E28"/>
++                <item android:offset="1" android:color="#FF05060D"/>
++            </gradient>
++        </aapt:attr>
++    </path>
++    <path android:pathData="M0,0h108v108h-108z">
++        <aapt:attr name="android:fillColor">
++            <gradient android:type="radial" android:centerX="92" android:centerY="14" android:gradientRadius="70">
++                <item android:offset="0" android:color="#78A66BFF"/>
++                <item android:offset="1" android:color="#00A66BFF"/>
++            </gradient>
++        </aapt:attr>
++    </path>
++    <path android:pathData="M0,0h108v108h-108z">
++        <aapt:attr name="android:fillColor">
++            <gradient android:type="radial" android:centerX="12" android:centerY="100" android:gradientRadius="64">
++                <item android:offset="0" android:color="#5521E6FF"/>
++                <item android:offset="1" android:color="#0021E6FF"/>
++            </gradient>
++        </aapt:attr>
++    </path>
++    <path android:fillColor="#0DFFFFFF" android:pathData="M-10,74 L74,-10 L84,-10 L-10,84 Z"/>
++    <path android:fillColor="#0AFFFFFF" android:pathData="M34,118 L118,34 L118,44 L44,118 Z"/>
++</vector>
+diff --git a/app/src/main/res/drawable/ic_launcher_fg.xml b/app/src/main/res/drawable/ic_launcher_fg.xml
+index f1e2d2a..a01ee05 100644
+--- a/app/src/main/res/drawable/ic_launcher_fg.xml
++++ b/app/src/main/res/drawable/ic_launcher_fg.xml
+@@ -1,7 +1,43 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
++    xmlns:aapt="http://schemas.android.com/aapt"
+     android:width="108dp" android:height="108dp"
+     android:viewportWidth="108" android:viewportHeight="108">
+-    <path android:fillColor="#7B6CFF" android:pathData="M54,30 L78,44 L78,64 L54,78 L30,64 L30,44 Z"/>
+-    <path android:fillColor="#14182B" android:pathData="M54,40 L69,49 L69,61 L54,70 L39,61 L39,49 Z"/>
+-    <path android:fillColor="#3DE0FF" android:pathData="M54,47 L63,53 L54,63 L45,53 Z"/>
++    <!-- pendar luar -->
++    <path android:fillColor="#00000000" android:strokeWidth="9" android:strokeAlpha="0.16" android:strokeLineJoin="round"
++        android:pathData="M54,26 L78.2,40 V68 L54,82 L29.8,68 V40 Z">
++        <aapt:attr name="android:strokeColor">
++            <gradient android:type="linear" android:startX="30" android:startY="26" android:endX="78" android:endY="82">
++                <item android:offset="0" android:color="#FFA66BFF"/>
++                <item android:offset="1" android:color="#FF21E6FF"/>
++            </gradient>
++        </aapt:attr>
++    </path>
++    <!-- badan heksagon -->
++    <path android:fillColor="#E6090B1E" android:strokeWidth="3" android:strokeLineJoin="round"
++        android:pathData="M54,26 L78.2,40 V68 L54,82 L29.8,68 V40 Z">
++        <aapt:attr name="android:strokeColor">
++            <gradient android:type="linear" android:startX="30" android:startY="26" android:endX="78" android:endY="82">
++                <item android:offset="0" android:color="#FFB98BFF"/>
++                <item android:offset="0.55" android:color="#FF4D7CFF"/>
++                <item android:offset="1" android:color="#FF21E6FF"/>
++            </gradient>
++        </aapt:attr>
++    </path>
++    <!-- lapisan dalam -->
++    <path android:fillColor="#00000000" android:strokeColor="#3321E6FF" android:strokeWidth="1" android:strokeLineJoin="round"
++        android:pathData="M54,32 L73,43 V65 L54,76 L35,65 V43 Z"/>
++    <!-- huruf N: pendar + inti -->
++    <path android:fillColor="#00000000" android:strokeColor="#4421E6FF" android:strokeWidth="10" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M44,65 V43 L64,65 V43"/>
++    <path android:fillColor="#00000000" android:strokeWidth="5.4" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M44,65 V43 L64,65 V43">
++        <aapt:attr name="android:strokeColor">
++            <gradient android:type="linear" android:startX="44" android:startY="43" android:endX="64" android:endY="65">
++                <item android:offset="0" android:color="#FFFFFFFF"/>
++                <item android:offset="1" android:color="#FF9FF4FF"/>
++            </gradient>
++        </aapt:attr>
++    </path>
++    <!-- berlian puncak -->
++    <path android:fillColor="#FF21E6FF" android:pathData="M54,19.5 L57.2,23.4 L54,27.3 L50.8,23.4 Z"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_launcher_mono.xml b/app/src/main/res/drawable/ic_launcher_mono.xml
+new file mode 100644
+index 0000000..d084300
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_launcher_mono.xml
+@@ -0,0 +1,9 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="108dp" android:height="108dp"
++    android:viewportWidth="108" android:viewportHeight="108">
++    <path android:fillColor="#00000000" android:strokeColor="#FF000000" android:strokeWidth="3.2" android:strokeLineJoin="round"
++        android:pathData="M54,26 L78.2,40 V68 L54,82 L29.8,68 V40 Z"/>
++    <path android:fillColor="#00000000" android:strokeColor="#FF000000" android:strokeWidth="5.4" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M44,65 V43 L64,65 V43"/>
++    <path android:fillColor="#FF000000" android:pathData="M54,19.5 L57.2,23.4 L54,27.3 L50.8,23.4 Z"/>
++</vector>
+diff --git a/app/src/main/res/drawable/ic_menu.xml b/app/src/main/res/drawable/ic_menu.xml
+index 85a2ba1..4b40ff3 100644
+--- a/app/src/main/res/drawable/ic_menu.xml
++++ b/app/src/main/res/drawable/ic_menu.xml
+@@ -1,5 +1,6 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M3,18h18v-2L3,16v2zM3,13h18v-2L3,11v2zM3,6v2h18L21,6L3,6z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M4,7 H20 M4,12 H15 M4,17 H20"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_mic.xml b/app/src/main/res/drawable/ic_mic.xml
+index 0a293e5..4e26dab 100644
+--- a/app/src/main/res/drawable/ic_mic.xml
++++ b/app/src/main/res/drawable/ic_mic.xml
+@@ -1,5 +1,10 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M12,14c1.66,0 3,-1.34 3,-3V5c0,-1.66 -1.34,-3 -3,-3S9,3.34 9,5v6c0,1.66 1.34,3 3,3zM17.3,11c0,3 -2.54,5.1 -5.3,5.1S6.7,14 6.7,11H5c0,3.41 2.72,6.23 6,6.72V21h2v-3.28c3.28,-0.48 6,-3.3 6,-6.72h-1.7z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,3 A3,3 0 0 1 15,6 V12 A3,3 0 0 1 9,12 V6 A3,3 0 0 1 12,3 Z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M5.6,11 A6.4,6.4 0 0 0 18.4,11"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,17.4 V21 M8.6,21 H15.4"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_monitor.xml b/app/src/main/res/drawable/ic_monitor.xml
+index 51082b5..1bda158 100644
+--- a/app/src/main/res/drawable/ic_monitor.xml
++++ b/app/src/main/res/drawable/ic_monitor.xml
+@@ -1,5 +1,10 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M21,3H3c-1.1,0 -2,0.9 -2,2v12c0,1.1 0.9,2 2,2h5v2h8v-2h5c1.1,0 1.99,-0.9 1.99,-2L23,5c0,-1.1 -0.9,-2 -2,-2zM21,17H3V5h18v12zM16,10l-2.5,3 -2,-2.5L8,14h10z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M4.5,4.5 H19.5 A1.5,1.5 0 0 1 21,6 V15 A1.5,1.5 0 0 1 19.5,16.5 H4.5 A1.5,1.5 0 0 1 3,15 V6 A1.5,1.5 0 0 1 4.5,4.5 Z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M8,20 H16 M12,16.5 V20"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M7,12.4 L10,9.6 L12.4,11.6 L16,8"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_nuclear.xml b/app/src/main/res/drawable/ic_nuclear.xml
+index f922aac..8925226 100644
+--- a/app/src/main/res/drawable/ic_nuclear.xml
++++ b/app/src/main/res/drawable/ic_nuclear.xml
+@@ -1,5 +1,10 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M12,2l-1.5,4.5L6,6l3,3.5L7,14l5,-2 5,2 -2,-4.5L18,6l-4.5,0.5zM12,13a2,2 0,1 0,0.001 0zM5,16l2,4h10l2,-4z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M7,6.5 H17 A0.5,0.5 0 0 1 17.5,7 V17 A0.5,0.5 0 0 1 17,17.5 H7 A0.5,0.5 0 0 1 6.5,17 V7 A0.5,0.5 0 0 1 7,6.5 Z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M9.5,3 V6.5 M12,3 V6.5 M14.5,3 V6.5 M9.5,17.5 V21 M12,17.5 V21 M14.5,17.5 V21 M3,9.5 H6.5 M3,12 H6.5 M3,14.5 H6.5 M17.5,9.5 H21 M17.5,12 H21 M17.5,14.5 H21"/>
++    <path android:fillColor="#FFFFFF" android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineJoin="round" android:strokeLineCap="round"
++        android:pathData="M10,10 H14 V14 H10 Z"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_pause.xml b/app/src/main/res/drawable/ic_pause.xml
+index 79442be..a457e8a 100644
+--- a/app/src/main/res/drawable/ic_pause.xml
++++ b/app/src/main/res/drawable/ic_pause.xml
+@@ -1,5 +1,6 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M6,19h4V5H6v14zM14,5v14h4V5h-4z"/>
++    <path android:fillColor="#FFFFFF" android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineJoin="round" android:strokeLineCap="round"
++        android:pathData="M6.5,5 H10 V19 H6.5 Z M14,5 H17.5 V19 H14 Z"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_person.xml b/app/src/main/res/drawable/ic_person.xml
+index 7191de7..a31c555 100644
+--- a/app/src/main/res/drawable/ic_person.xml
++++ b/app/src/main/res/drawable/ic_person.xml
+@@ -1,5 +1,8 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M12,12c2.21,0 4,-1.79 4,-4s-1.79,-4 -4,-4 -4,1.79 -4,4 1.79,4 4,4zM12,14c-2.67,0 -8,1.34 -8,4v2h16v-2c0,-2.66 -5.33,-4 -8,-4z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M8.2,8 a3.8,3.8 0 1 0 7.6,0 a3.8,3.8 0 1 0 -7.6,0"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M4.6,20 C5.4,15.8 8.4,14 12,14 C15.6,14 18.6,15.8 19.4,20"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_photo.xml b/app/src/main/res/drawable/ic_photo.xml
+index 4e521ce..f13f328 100644
+--- a/app/src/main/res/drawable/ic_photo.xml
++++ b/app/src/main/res/drawable/ic_photo.xml
+@@ -1,5 +1,9 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M21,19V5c0,-1.1 -0.9,-2 -2,-2H5c-1.1,0 -2,0.9 -2,2v14c0,1.1 0.9,2 2,2h14c1.1,0 2,-0.9 2,-2zM8.5,13.5l2.5,3.01L14.5,12l4.5,6H5l3.5,-4.5z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M5,4.5 H19 A1.5,1.5 0 0 1 20.5,6 V18 A1.5,1.5 0 0 1 19,19.5 H5 A1.5,1.5 0 0 1 3.5,18 V6 A1.5,1.5 0 0 1 5,4.5 Z"/>
++    <path android:fillColor="#FFFFFF" android:pathData="M7.1,9.4 a1.5,1.5 0 1 0 3.0,0 a1.5,1.5 0 1 0 -3.0,0"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M3.8,16.6 L9,11.8 L13,15.6 L15.6,13.2 L20.2,17.4"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_play.xml b/app/src/main/res/drawable/ic_play.xml
+index 8298310..86167e9 100644
+--- a/app/src/main/res/drawable/ic_play.xml
++++ b/app/src/main/res/drawable/ic_play.xml
+@@ -1,5 +1,6 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M8,5v14l11,-7z"/>
++    <path android:fillColor="#FFFFFF" android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineJoin="round" android:strokeLineCap="round"
++        android:pathData="M7,4.8 L19,12 L7,19.2 Z"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_record.xml b/app/src/main/res/drawable/ic_record.xml
+index 683c35d..3ecc6be 100644
+--- a/app/src/main/res/drawable/ic_record.xml
++++ b/app/src/main/res/drawable/ic_record.xml
+@@ -1,5 +1,7 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M12,12m-7,0a7,7 0,1 1,14 0a7,7 0,1 1,-14 0"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M3,12 a9,9 0 1 0 18,0 a9,9 0 1 0 -18,0"/>
++    <path android:fillColor="#FFFFFF" android:pathData="M7.4,12 a4.6,4.6 0 1 0 9.2,0 a4.6,4.6 0 1 0 -9.2,0"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_rotate.xml b/app/src/main/res/drawable/ic_rotate.xml
+index a58d3cc..f507404 100644
+--- a/app/src/main/res/drawable/ic_rotate.xml
++++ b/app/src/main/res/drawable/ic_rotate.xml
+@@ -1,5 +1,12 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M12,4V1L8,5l4,4V6c3.31,0 6,2.69 6,6 0,1.01 -0.25,1.97 -0.7,2.8l1.46,1.46C19.54,15.03 20,13.57 20,12c0,-4.42 -3.58,-8 -8,-8zM12,18c-3.31,0 -6,-2.69 -6,-6 0,-1.01 0.25,-1.97 0.7,-2.8L5.24,7.74C4.46,8.97 4,10.43 4,12c0,4.42 3.58,8 8,8v3l4,-4 -4,-4v3z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M19.5,11 A7.5,7.5 0 0 0 6.2,7.2"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M5.6,3.4 V7.4 H9.6"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M4.5,13 A7.5,7.5 0 0 0 17.8,16.8"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M18.4,20.6 V16.6 H14.4"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_scissors.xml b/app/src/main/res/drawable/ic_scissors.xml
+index 9892217..2156ea7 100644
+--- a/app/src/main/res/drawable/ic_scissors.xml
++++ b/app/src/main/res/drawable/ic_scissors.xml
+@@ -1,5 +1,10 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M9.64,7.64c0.23,-0.5 0.36,-1.05 0.36,-1.64 0,-2.21 -1.79,-4 -4,-4S2,3.79 2,6s1.79,4 4,4c0.59,0 1.14,-0.13 1.64,-0.36L10,12l-2.36,2.36C7.14,14.13 6.59,14 6,14c-2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4c0,-0.59 -0.13,-1.14 -0.36,-1.64L12,14l7,7h3v-1L9.64,7.64zM6,8c-1.1,0 -2,-0.89 -2,-2s0.9,-2 2,-2 2,0.89 2,2 -0.9,2 -2,2zM6,20c-1.1,0 -2,-0.89 -2,-2s0.9,-2 2,-2 2,0.89 2,2 -0.9,2 -2,2zM12,12.5c-0.28,0 -0.5,-0.22 -0.5,-0.5s0.22,-0.5 0.5,-0.5 0.5,0.22 0.5,0.5 -0.22,0.5 -0.5,0.5zM19,3l-6,6 2,2 7,-7V3z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M3.6,6.4 a2.6,2.6 0 1 0 5.2,0 a2.6,2.6 0 1 0 -5.2,0"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M3.6,17.6 a2.6,2.6 0 1 0 5.2,0 a2.6,2.6 0 1 0 -5.2,0"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M8.2,8 L20,18.6 M8.2,16 L20,5.4"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_search.xml b/app/src/main/res/drawable/ic_search.xml
+index e4e13fb..0ab166b 100644
+--- a/app/src/main/res/drawable/ic_search.xml
++++ b/app/src/main/res/drawable/ic_search.xml
+@@ -1,5 +1,8 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M15.5,14h-0.79l-0.28,-0.27C15.41,12.59 16,11.11 16,9.5 16,5.91 13.09,3 9.5,3S3,5.91 3,9.5 5.91,16 9.5,16c1.61,0 3.09,-0.59 4.23,-1.57l0.27,0.28v0.79l5,4.99L20.49,19l-4.99,-5zM9.5,14C7.01,14 5,11.99 5,9.5S7.01,5 9.5,5 14,7.01 14,9.5 11.99,14 9.5,14z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M4.199999999999999,10.6 a6.4,6.4 0 1 0 12.8,0 a6.4,6.4 0 1 0 -12.8,0"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M15.4,15.4 L20.6,20.6"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_settings.xml b/app/src/main/res/drawable/ic_settings.xml
+index e766d75..92e2b7f 100644
+--- a/app/src/main/res/drawable/ic_settings.xml
++++ b/app/src/main/res/drawable/ic_settings.xml
+@@ -1,5 +1,10 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M19.14,12.94c0.04,-0.3 0.06,-0.61 0.06,-0.94 0,-0.32 -0.02,-0.64 -0.07,-0.94l2.03,-1.58c0.18,-0.14 0.23,-0.41 0.12,-0.61l-1.92,-3.32c-0.12,-0.22 -0.37,-0.29 -0.59,-0.22l-2.39,0.96c-0.5,-0.38 -1.03,-0.7 -1.62,-0.94L14.4,2.81c-0.04,-0.24 -0.24,-0.41 -0.48,-0.41h-3.84c-0.24,0 -0.43,0.17 -0.47,0.41L9.25,5.35C8.66,5.59 8.12,5.92 7.63,6.29L5.24,5.33c-0.22,-0.08 -0.47,0 -0.59,0.22L2.74,8.87C2.62,9.08 2.66,9.34 2.86,9.48l2.03,1.58C4.84,11.36 4.8,11.69 4.8,12s0.02,0.64 0.07,0.94l-2.03,1.58c-0.18,0.14 -0.23,0.41 -0.12,0.61l1.92,3.32c0.12,0.22 0.37,0.29 0.59,0.22l2.39,-0.96c0.5,0.38 1.03,0.7 1.62,0.94l0.36,2.54c0.05,0.24 0.24,0.41 0.48,0.41h3.84c0.24,0 0.44,-0.17 0.47,-0.41l0.36,-2.54c0.59,-0.24 1.13,-0.56 1.62,-0.94l2.39,0.96c0.22,0.08 0.47,0 0.59,-0.22l1.92,-3.32c0.12,-0.22 0.07,-0.47 -0.12,-0.61l-2.01,-1.58zM12,15.6c-1.98,0 -3.6,-1.62 -3.6,-3.6s1.62,-3.6 3.6,-3.6 3.6,1.62 3.6,3.6 -1.62,3.6 -3.6,3.6z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M4,7 H6.6 M11.4,7 H20 M4,17 H12.6 M17.4,17 H20"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M6.6,7 a2.4,2.4 0 1 0 4.8,0 a2.4,2.4 0 1 0 -4.8,0"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12.6,17 a2.4,2.4 0 1 0 4.8,0 a2.4,2.4 0 1 0 -4.8,0"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_speed.xml b/app/src/main/res/drawable/ic_speed.xml
+index 8ebbd5c..08630e4 100644
+--- a/app/src/main/res/drawable/ic_speed.xml
++++ b/app/src/main/res/drawable/ic_speed.xml
+@@ -1,5 +1,11 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M20.38,8.57l-1.23,1.85a8,8 0,0 1,-0.22 7.58H5.07A8,8 0,0 1,15.58 6.85l1.85,-1.23A10,10 0,0 0,3.35 19a2,2 0,0 0,1.72 1h13.85a2,2 0,0 0,1.74 -1,10 10,0 0,0 -0.27,-10.44zM10.59,15.41a2,2 0,0 0,2.83 0l5.66,-8.49 -8.49,5.66a2,2 0,0 0,0 2.83z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M5.64,19.36 A9,9 0 1 1 18.36,19.36"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,13 L16.2,8.4"/>
++    <path android:fillColor="#FFFFFF" android:pathData="M10.3,13 a1.7,1.7 0 1 0 3.4,0 a1.7,1.7 0 1 0 -3.4,0"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,5.2 V6.6 M5.2,8.9 L6.4,9.7 M18.8,8.9 L17.6,9.7"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_stop.xml b/app/src/main/res/drawable/ic_stop.xml
+index bdb9a5d..43bcac9 100644
+--- a/app/src/main/res/drawable/ic_stop.xml
++++ b/app/src/main/res/drawable/ic_stop.xml
+@@ -1,5 +1,6 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M6,6h12v12H6z"/>
++    <path android:fillColor="#FFFFFF" android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineJoin="round" android:strokeLineCap="round"
++        android:pathData="M6,6 H18 V18 H6 Z"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_thermo.xml b/app/src/main/res/drawable/ic_thermo.xml
+index 39365f3..667d62a 100644
+--- a/app/src/main/res/drawable/ic_thermo.xml
++++ b/app/src/main/res/drawable/ic_thermo.xml
+@@ -1,5 +1,9 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M15,13V5c0,-1.66 -1.34,-3 -3,-3S9,3.34 9,5v8c-1.21,0.91 -2,2.37 -2,4 0,2.76 2.24,5 5,5s5,-2.24 5,-5c0,-1.63 -0.79,-3.09 -2,-4zM11,5c0,-0.55 0.45,-1 1,-1s1,0.45 1,1h-1v1h1v2h-1v1h1v2h-2V5z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M10,13.4 V5 A2,2 0 0 1 14,5 V13.4 A4,4 0 1 1 10,13.4 Z"/>
++    <path android:fillColor="#FFFFFF" android:pathData="M10.3,16.6 a1.7,1.7 0 1 0 3.4,0 a1.7,1.7 0 1 0 -3.4,0"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,16.6 V9"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_trash.xml b/app/src/main/res/drawable/ic_trash.xml
+index 1a21a4b..5c37af2 100644
+--- a/app/src/main/res/drawable/ic_trash.xml
++++ b/app/src/main/res/drawable/ic_trash.xml
+@@ -1,5 +1,10 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M6,19c0,1.1 0.9,2 2,2h8c1.1,0 2,-0.9 2,-2V7H6v12zM19,4h-3.5l-1,-1h-5l-1,1H5v2h14V4z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M4,6.6 H20 M9.4,6.6 V4.4 H14.6 V6.6"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M6.2,6.6 L7,19.4 A1.2,1.2 0 0 0 8.2,20.5 H15.8 A1.2,1.2 0 0 0 17,19.4 L17.8,6.6"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M10,10.4 V16.6 M14,10.4 V16.6"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_video.xml b/app/src/main/res/drawable/ic_video.xml
+index ea8499d..f2b20d4 100644
+--- a/app/src/main/res/drawable/ic_video.xml
++++ b/app/src/main/res/drawable/ic_video.xml
+@@ -1,5 +1,8 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M17,10.5V7c0,-0.55 -0.45,-1 -1,-1H4c-0.55,0 -1,0.45 -1,1v10c0,0.55 0.45,1 1,1h12c0.55,0 1,-0.45 1,-1v-3.5l4,4v-11l-4,4z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M3.5,6.5 H14 A1.5,1.5 0 0 1 15.5,8 V16 A1.5,1.5 0 0 1 14,17.5 H3.5 A1.5,1.5 0 0 1 2,16 V8 A1.5,1.5 0 0 1 3.5,6.5 Z"/>
++    <path android:fillColor="#FFFFFF" android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineJoin="round" android:strokeLineCap="round"
++        android:pathData="M15.5,10.4 L21.5,7 V17 L15.5,13.6 Z"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_volume.xml b/app/src/main/res/drawable/ic_volume.xml
+index 188f4f2..776740c 100644
+--- a/app/src/main/res/drawable/ic_volume.xml
++++ b/app/src/main/res/drawable/ic_volume.xml
+@@ -1,5 +1,10 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M3,9v6h4l5,5V4L7,9H3zM16.5,12c0,-1.77 -1.02,-3.29 -2.5,-4.03v8.05c1.48,-0.73 2.5,-2.25 2.5,-4.02zM14,3.23v2.06c2.89,0.86 5,3.54 5,6.71s-2.11,5.85 -5,6.71v2.06c4.01,-0.91 7,-4.49 7,-8.77s-2.99,-7.86 -7,-8.77z"/>
++    <path android:fillColor="#FFFFFF" android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineJoin="round" android:strokeLineCap="round"
++        android:pathData="M4,9.5 H7.6 L12.6,5.2 V18.8 L7.6,14.5 H4 Z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M15.8,9 A4.2,4.2 0 0 1 15.8,15"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M18.6,6.4 A8,8 0 0 1 18.6,17.6"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_warn.xml b/app/src/main/res/drawable/ic_warn.xml
+index 2c1e16f..4971ad4 100644
+--- a/app/src/main/res/drawable/ic_warn.xml
++++ b/app/src/main/res/drawable/ic_warn.xml
+@@ -1,5 +1,9 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M1,21h22L12,2 1,21zM13,18h-2v-2h2v2zM13,14h-2v-4h2v4z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,3.6 L21.4,19.8 H2.6 Z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M12,9.6 V14"/>
++    <path android:fillColor="#FFFFFF" android:pathData="M10.95,16.9 a1.05,1.05 0 1 0 2.1,0 a1.05,1.05 0 1 0 -2.1,0"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_wifi.xml b/app/src/main/res/drawable/ic_wifi.xml
+index 0dcb60b..42ecd93 100644
+--- a/app/src/main/res/drawable/ic_wifi.xml
++++ b/app/src/main/res/drawable/ic_wifi.xml
+@@ -1,5 +1,11 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="24dp" android:height="24dp"
+     android:viewportWidth="24" android:viewportHeight="24">
+-    <path android:fillColor="#FFFFFF" android:pathData="M1,9l2,2c4.97,-4.97 13.03,-4.97 18,0l2,-2C16.93,2.93 7.08,2.93 1,9zM9,17l3,3 3,-3c-1.65,-1.66 -4.34,-1.66 -6,0zM5,13l2,2c2.76,-2.76 7.24,-2.76 10,0l2,-2C15.14,9.14 8.87,9.14 5,13z"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M2.5,9 A14,14 0 0 1 21.5,9"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M5.8,12.6 A9.3,9.3 0 0 1 18.2,12.6"/>
++    <path android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
++        android:pathData="M9,16 A4.8,4.8 0 0 1 15,16"/>
++    <path android:fillColor="#FFFFFF" android:pathData="M10.6,19.4 a1.4,1.4 0 1 0 2.8,0 a1.4,1.4 0 1 0 -2.8,0"/>
+ </vector>
+diff --git a/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml b/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+index 11245ae..828c67f 100644
+--- a/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
++++ b/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+@@ -1,5 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+-    <background android:drawable="@color/nx_launcher_bg"/>
++    <background android:drawable="@drawable/ic_launcher_bg"/>
+     <foreground android:drawable="@drawable/ic_launcher_fg"/>
++    <monochrome android:drawable="@drawable/ic_launcher_mono"/>
+ </adaptive-icon>
+diff --git a/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml b/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+index 11245ae..828c67f 100644
+--- a/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
++++ b/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+@@ -1,5 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+-    <background android:drawable="@color/nx_launcher_bg"/>
++    <background android:drawable="@drawable/ic_launcher_bg"/>
+     <foreground android:drawable="@drawable/ic_launcher_fg"/>
++    <monochrome android:drawable="@drawable/ic_launcher_mono"/>
+ </adaptive-icon>
+diff --git a/app/src/main/res/values/colors.xml b/app/src/main/res/values/colors.xml
+index a9eff5a..0a0e089 100644
+--- a/app/src/main/res/values/colors.xml
++++ b/app/src/main/res/values/colors.xml
+@@ -1,4 +1,4 @@
+ <resources>
+-    <color name="nx_bg">#04050A</color>
+-    <color name="nx_launcher_bg">#14182B</color>
++    <color name="nx_bg">#05060D</color>
++    <color name="nx_launcher_bg">#0C0E28</color>
+ </resources>
