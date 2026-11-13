@@ -165,8 +165,12 @@ class RecordBar(private val ctx: Context, private val wm: WindowManager, private
         }, t = 6)
         settingsBox.add(title("Resolusi video"), t = 12)
         settingsBox.add(ctx.chipRow(ScreenCaptureService.RES_LABELS, Prefs.recordRes.coerceIn(0, 3)) { Prefs.recordRes = it }, t = 6)
-        settingsBox.add(title("Kehalusan"), t = 12)
-        settingsBox.add(ctx.chipRow(listOf("30 fps", "60 fps"), if (Prefs.recordFps60) 1 else 0) { Prefs.recordFps60 = it == 1 }, t = 6, b = 4)
+        settingsBox.add(title("Frame rate (fps)"), t = 12)
+        val opts = ScreenCaptureService.FPS_OPTIONS
+        settingsBox.add(
+            ctx.chipRow(opts.map { it.toString() }, opts.indexOf(Prefs.recordFps).coerceAtLeast(0)) { Prefs.recordFps = opts[it] },
+            t = 6, b = 4
+        )
     }
 
     // ---------- Aksi ----------
@@ -195,7 +199,7 @@ class RecordBar(private val ctx: Context, private val wm: WindowManager, private
             buildSettings()
             settingsOpen = true
             settingsBox.visibility = View.VISIBLE
-            card.minimumWidth = ctx.dp(264)
+            card.minimumWidth = ctx.dp(300)
         }
     }
 

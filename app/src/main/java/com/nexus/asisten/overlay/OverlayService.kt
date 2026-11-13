@@ -21,6 +21,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.net.wifi.WifiManager
@@ -235,6 +236,17 @@ class OverlayService : Service(), PanelHost, RecordHost {
             flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
         ).also { it.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
 
+    @Suppress("DEPRECATION")
+    private fun handleY(ins: WindowInsets): Int {
+        val gesture = try { ins.systemGestureInsets.bottom } catch (_: Throwable) { 0 }
+        val base = maxOf(gesture, ins.systemWindowInsetBottom)
+        return when {
+            base > 0 -> base + dp(2)
+            isGestureNav() -> dp(26)
+            else -> dp(6)
+        }
+    }
+
     private fun isGestureNav(): Boolean {
         val id = resources.getIdentifier("config_navBarInteractionMode", "integer", "android")
         return id > 0 && resources.getInteger(id) == 2
@@ -251,7 +263,7 @@ class OverlayService : Service(), PanelHost, RecordHost {
         val pill = View(this)
         pill.background = gradientRounded(NX.ACCENT, NX.CYAN, dpf(3f))
         pill.glow(NX.ACCENT, 6f)
-        root.addView(pill, FrameLayout.LayoutParams(dp(64), dp(5), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also { it.bottomMargin = dp(10) })
+        root.addView(pill, FrameLayout.LayoutParams(dp(64), dp(5), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also { it.bottomMargin = dp(6) })
         root.alpha = 0.55f
 
         val params = overlayParams(
@@ -261,8 +273,20 @@ class OverlayService : Service(), PanelHost, RecordHost {
                 (if (Prefs.keepAwake) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0)
         )
         params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        params.y = if (isGestureNav()) maxOf(navInset(), dp(24)) + dp(12) else navInset() + dp(4)
+        params.y = dp(26)
         handleParams = params
+        var lastY = params.y
+        // Posisi dihitung dari insets nyata perangkat: tepat di atas zona gestur sistem (gestur) atau bilah
+        // navigasi (3 tombol), jadi pill menempel di bawah-tengah layar apa pun jenis navigasinya.
+        root.setOnApplyWindowInsetsListener { v, ins ->
+            val y = handleY(ins)
+            if (y != lastY) {
+                lastY = y
+                params.y = y
+                v.post { try { wm.updateViewLayout(v, params) } catch (_: Exception) {} }
+            }
+            ins
+        }
 
         var downY = 0f
         var opened = false
@@ -330,6 +354,7 @@ class OverlayService : Service(), PanelHost, RecordHost {
         try {
             wm.addView(ui.root, params)
             panel = ui
+            ui.start()
             handleView?.visibility = View.INVISIBLE
             fps.start(pkg)
             ping.start()

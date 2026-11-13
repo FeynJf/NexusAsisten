@@ -61,6 +61,9 @@ class ScreenCaptureService : Service() {
         val RES_SHORT = intArrayOf(1440, 1080, 750, 540)
         val RES_LABELS = listOf("2K", "1K", "750p", "540p")
 
+        /** Pilihan frame rate rekaman. Hasil nyata dibatasi refresh rate layar & kemampuan encoder HP. */
+        val FPS_OPTIONS = listOf(30, 60, 90, 120, 200)
+
         @Volatile var ready = false
         @Volatile var recording = false
         @Volatile var paused = false
@@ -324,7 +327,7 @@ class ScreenCaptureService : Service() {
         if (!ready || v == null || recording) return
         if (shooting) { toast("Tunggu cuplikan selesai"); return }
         val m = realMetrics()
-        val fps = if (Prefs.recordFps60) 60 else 30
+        val wantFps = Prefs.recordFps.let { if (it in FPS_OPTIONS) it else 30 }
         var useMic = Prefs.recordMic && ContextCompatMic.granted(this)
         if (Prefs.recordMic && !useMic) toast("Izin mikrofon belum aktif, merekam tanpa suara mikrofon")
         if (useMic && !micTyped) {
@@ -333,10 +336,14 @@ class ScreenCaptureService : Service() {
             if (!micTyped) { useMic = false; toast("Mikrofon tidak tersedia di sesi ini, mulai ulang rekam layar") }
         }
         // Coba resolusi pilihan; bila encoder tidak mendukung, turun satu tingkat sampai berhasil.
+        // Coba resolusi pilihan dengan fps pilihan; bila encoder menolak, turunkan fps dulu, baru resolusi.
+        val fpsTry = FPS_OPTIONS.filter { it <= wantFps }.sortedDescending()
         var res = Prefs.recordRes.coerceIn(0, 3)
         while (res <= 3) {
             val (w, h) = sizeFor(m, res)
-            if (tryStart(v, m, w, h, fps, useMic)) return
+            for (fps in fpsTry) {
+                if (tryStart(v, m, w, h, fps, wantFps, useMic)) return
+            }
             res++
         }
         toast("Perekaman gagal dimulai")
@@ -344,7 +351,7 @@ class ScreenCaptureService : Service() {
         refreshNotification()
     }
 
-    private fun tryStart(v: VirtualDisplay, m: DisplayMetrics, w: Int, h: Int, fps: Int, useMic: Boolean): Boolean {
+    private fun tryStart(v: VirtualDisplay, m: DisplayMetrics, w: Int, h: Int, fps: Int, wantFps: Int, useMic: Boolean): Boolean {
         val cv = ContentValues().apply {
             put(MediaStore.Video.Media.DISPLAY_NAME, "Nexus_${stamp()}.mp4")
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
@@ -370,7 +377,8 @@ class ScreenCaptureService : Service() {
             }
             rec.setVideoSize(w, h)
             rec.setVideoFrameRate(fps)
-            val bitrate = (w.toLong() * h * fps * 0.09).toLong().coerceIn(2_000_000L, 40_000_000L).toInt()
+            val maxBitrate = if (fps >= 90) 80_000_000L else 40_000_000L
+            val bitrate = (w.toLong() * h * fps * 0.09).toLong().coerceIn(2_000_000L, maxBitrate).toInt()
             rec.setVideoEncodingBitRate(bitrate)
             rec.prepare()
             v.resize(w, h, m.densityDpi)
@@ -392,7 +400,8 @@ class ScreenCaptureService : Service() {
         paused = false
         recording = true
         refreshNotification()
-        toast("Perekaman dimulai (${w}x$h)")
+        val fpsNote = if (fps < wantFps) ", diturunkan dari $wantFps fps" else ""
+        toast("Perekaman dimulai (${w}x$h, $fps fps$fpsNote)")
         return true
     }
 

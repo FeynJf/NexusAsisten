@@ -47,7 +47,9 @@ object Updater {
     private const val CH = "nexus_update"
     private val exec = Executors.newSingleThreadExecutor()
     private val api = "https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases?per_page=10"
-    private const val NO_RELEASE = "Belum ada rilis APK di GitHub. Pastikan workflow build.yml terbaru berada di .github/workflows/ (bukan di root repo), lalu jalankan build lagi."
+    const val NO_RELEASE = "Belum ada rilis APK di GitHub. Salin isi build.yml (di root repo) ke .github/workflows/build.yml di GitHub, lalu tunggu build selesai."
+    /** Halaman edit workflow di GitHub, untuk memperbaiki penyebab "belum ada rilis". */
+    val workflowEditUrl get() = "https://github.com/${BuildConfig.UPDATE_REPO}/edit/main/.github/workflows/build.yml"
 
     fun currentLabel() = "${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})"
 
@@ -64,6 +66,89 @@ object Updater {
         check(ctx, false)
     }
 
+    private val SITE = "https://github.com/${BuildConfig.UPDATE_REPO}"
+    private val APK_NAME = "NexusAsisten.apk"
+
+    private fun buildOf(tag: String) = Regex("(\\d+)\\s*$").find(tag)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
+    /**
+     * Cara utama, TANPA API GitHub (jadi tidak kena batas permintaan yang sering menimpa jaringan seluler):
+     * /releases/latest dialihkan ke /releases/tag/<tag>, dari situ nomor build dan URL APK diketahui.
+     */
+    private fun latestTagViaRedirect(): String? {
+        val c = URL("$SITE/releases/latest").openConnection() as HttpURLConnection
+        c.instanceFollowRedirects = false
+        c.connectTimeout = 8000
+        c.readTimeout = 8000
+        c.setRequestProperty("User-Agent", "NexusAsisten")
+        val code = c.responseCode
+        if (code in 300..399) {
+            val loc = c.getHeaderField("Location") ?: return null
+            val i = loc.indexOf("/releases/tag/")
+            return if (i >= 0) java.net.URLDecoder.decode(loc.substring(i + 14).substringBefore('?'), "UTF-8") else null
+        }
+        if (code == 404) return null
+        throw IOException("GitHub membalas kode $code")
+    }
+
+    /** Cadangan lewat API: rilis berAPK dengan nomor build tertinggi. */
+    private fun latestViaApi(): Info? {
+        val c = URL(api).openConnection() as HttpURLConnection
+        c.connectTimeout = 8000
+        c.readTimeout = 8000
+        c.setRequestProperty("Accept", "application/vnd.github+json")
+        c.setRequestProperty("User-Agent", "NexusAsisten")
+        val code = c.responseCode
+        if (code == 404) return null
+        if (code == 403 || code == 429) throw IOException("batas permintaan GitHub tercapai, coba lagi nanti")
+        if (code != 200) throw IOException("GitHub membalas kode $code")
+        val arr = JSONArray(c.inputStream.bufferedReader().use { it.readText() })
+        var best: Info? = null
+        for (n in 0 until arr.length()) {
+            val j = arr.getJSONObject(n)
+            if (j.optBoolean("draft", false)) continue
+            val tag = j.optString("tag_name")
+            val build = buildOf(tag)
+            var url = ""
+            var size = 0L
+            val assets = j.optJSONArray("assets")
+            if (assets != null) {
+                for (k in 0 until assets.length()) {
+                    val a = assets.getJSONObject(k)
+                    if (a.optString("name").endsWith(".apk")) {
+                        url = a.optString("browser_download_url")
+                        size = a.optLong("size")
+                        break
+                    }
+                }
+            }
+            if (url.isEmpty()) continue
+            if (best == null || build > best.build) best = Info(tag, build, j.optString("name", tag), j.optString("body", ""), url, size)
+        }
+        return best
+    }
+
+    /** Catatan rilis & ukuran APK (opsional; gagal pun tidak masalah). */
+    private fun enrich(i: Info): Info = try {
+        val c = URL("https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases/tags/${i.tag}").openConnection() as HttpURLConnection
+        c.connectTimeout = 5000
+        c.readTimeout = 5000
+        c.setRequestProperty("Accept", "application/vnd.github+json")
+        c.setRequestProperty("User-Agent", "NexusAsisten")
+        if (c.responseCode != 200) i else {
+            val j = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+            var size = i.size
+            val assets = j.optJSONArray("assets")
+            if (assets != null) for (k in 0 until assets.length()) {
+                val a = assets.getJSONObject(k)
+                if (a.optString("name").endsWith(".apk")) { size = a.optLong("size"); break }
+            }
+            i.copy(title = j.optString("name", i.title), notes = j.optString("body", ""), size = size)
+        }
+    } catch (_: Exception) {
+        i
+    }
+
     fun check(ctx: Context, manual: Boolean = true) {
         if (stage == Stage.CHECKING || stage == Stage.DOWNLOADING || stage == Stage.INSTALLING) return
         stage = Stage.CHECKING
@@ -71,54 +156,25 @@ object Updater {
         note = null
         exec.execute {
             try {
-                val c = URL(api).openConnection() as HttpURLConnection
-                c.connectTimeout = 8000
-                c.readTimeout = 8000
-                c.setRequestProperty("Accept", "application/vnd.github+json")
-                c.setRequestProperty("User-Agent", "NexusAsisten")
-                val code = c.responseCode
-                Prefs.lastUpdateCheck = System.currentTimeMillis()
-                if (code == 404) {
-                    info = null
-                    note = NO_RELEASE
-                    stage = Stage.UPTODATE
-                    return@execute
-                }
-                if (code == 403 || code == 429) throw IOException("batas permintaan GitHub tercapai, coba lagi nanti")
-                if (code != 200) throw IOException("GitHub membalas kode $code")
-                val arr = JSONArray(c.inputStream.bufferedReader().use { it.readText() })
-                // Ambil rilis dengan nomor build tertinggi yang punya APK (bukan sekadar "latest" milik GitHub).
+                var redirectError: Exception? = null
+                val tag = try { latestTagViaRedirect() } catch (e: Exception) { redirectError = e; null }
                 var best: Info? = null
-                var seen = 0
-                for (n in 0 until arr.length()) {
-                    val j = arr.getJSONObject(n)
-                    if (j.optBoolean("draft", false)) continue
-                    val tag = j.optString("tag_name")
-                    val build = Regex("(\\d+)\\s*$").find(tag)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                    var url = ""
-                    var size = 0L
-                    val assets = j.optJSONArray("assets")
-                    if (assets != null) {
-                        for (k in 0 until assets.length()) {
-                            val a = assets.getJSONObject(k)
-                            if (a.optString("name").endsWith(".apk")) {
-                                url = a.optString("browser_download_url")
-                                size = a.optLong("size")
-                                break
-                            }
-                        }
-                    }
-                    if (url.isEmpty()) continue
-                    seen++
-                    if (best == null || build > best.build) best = Info(tag, build, j.optString("name", tag), j.optString("body", ""), url, size)
+                if (tag != null) {
+                    val build = buildOf(tag)
+                    best = Info(tag, build, "Nexus Asisten build $build", "", "$SITE/releases/download/$tag/$APK_NAME", 0L)
+                    if (build > BuildConfig.BUILD_NUMBER) best = enrich(best)
+                } else {
+                    best = try { latestViaApi() } catch (e: Exception) { throw redirectError ?: e }
+                    if (best == null && redirectError != null) throw redirectError
                 }
+                Prefs.lastUpdateCheck = System.currentTimeMillis()
                 val b = best
                 if (b != null && b.build > BuildConfig.BUILD_NUMBER) {
                     info = b
                     stage = Stage.AVAILABLE
                 } else {
                     info = null
-                    if (seen == 0) note = NO_RELEASE
+                    if (b == null) note = NO_RELEASE
                     stage = Stage.UPTODATE
                 }
             } catch (e: Exception) {

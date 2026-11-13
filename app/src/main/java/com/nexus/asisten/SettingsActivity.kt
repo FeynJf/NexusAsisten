@@ -166,7 +166,12 @@ class SettingsActivity : AppCompatActivity() {
             res.add(chipRow(ScreenCaptureService.RES_LABELS, Prefs.recordRes.coerceIn(0, 3)) { Prefs.recordRes = it }, t = 10, b = 4)
             c.addView(res)
             c.sep()
-            c.addView(switchRow("60 fps", "Lebih halus, file lebih besar.", Prefs.recordFps60) { Prefs.recordFps60 = it })
+            val fpsBox = vbox(16, 10)
+            fpsBox.addView(tv("Frame rate (fps)", 15f, NX.TEXT, 500))
+            fpsBox.add(tv("Makin tinggi makin halus tapi file besar. Hasil nyata dibatasi refresh rate layar dan encoder HP; kalau tidak didukung otomatis diturunkan.", 12.5f, NX.TEXT2), t = 3)
+            val fo = ScreenCaptureService.FPS_OPTIONS
+            fpsBox.add(chipRow(fo.map { it.toString() }, fo.indexOf(Prefs.recordFps).coerceAtLeast(0)) { Prefs.recordFps = fo[it] }, t = 10, b = 4)
+            c.addView(fpsBox)
         }
     }
 

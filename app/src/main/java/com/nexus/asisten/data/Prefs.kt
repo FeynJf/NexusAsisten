@@ -34,6 +34,10 @@ object Prefs {
     var quickStart: Boolean get() = b("quick_start", true); set(v) = putB("quick_start", v)
     var recordMic: Boolean get() = b("rec_mic", false); set(v) = putB("rec_mic", v)
     var recordFps60: Boolean get() = b("rec_60", false); set(v) = putB("rec_60", v)
+    /** Frame rate rekaman: 30, 60, 90, 120 atau 200 (nilai lama "60 fps" ikut terbaca). */
+    var recordFps: Int
+        get() { val v = i("rec_fps", -1); return if (v > 0) v else if (recordFps60) 60 else 30 }
+        set(v) = putI("rec_fps", v)
     var recordHd: Boolean get() = b("rec_hd", true); set(v) = putB("rec_hd", v)
     /** Resolusi rekaman: 0 = 2K, 1 = 1K, 2 = 750p, 3 = 540p. */
     var recordRes: Int get() = i("rec_res", 1); set(v) = putI("rec_res", v)

@@ -50,9 +50,18 @@ fun Activity.updateCard(): LinearLayout {
             Stage.CHECKING -> show("Memeriksa pembaruan...", "Versi terpasang ${Updater.currentLabel()}", null, true, true, 0) {}
             Stage.UPTODATE -> show(
                 if (Updater.note != null) "Belum ada rilis untuk diunduh" else "Sudah versi terbaru",
-                Updater.note ?: "Versi terpasang ${Updater.currentLabel()}", "Periksa lagi", false, false, 0) {
-                Fx.say(this, "Memeriksa pembaruan...")
-                Updater.check(this, true)
+                Updater.note ?: "Versi terpasang ${Updater.currentLabel()}",
+                if (Updater.note != null) "Buka editor workflow di GitHub" else "Periksa lagi", false, false, 0) {
+                if (Updater.note != null) {
+                    try {
+                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(Updater.workflowEditUrl)))
+                    } catch (_: Exception) {
+                        Fx.say(this, "Buka github.com lewat browser")
+                    }
+                } else {
+                    Fx.say(this, "Memeriksa pembaruan...")
+                    Updater.check(this, true)
+                }
             }
             Stage.AVAILABLE -> show(
                 "Pembaruan tersedia", (i?.title ?: "Versi baru") + size + "\n" + (i?.notes?.lineSequence()?.firstOrNull { it.isNotBlank() } ?: ""),

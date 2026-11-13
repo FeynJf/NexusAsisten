@@ -5,6 +5,9 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
+import android.util.DisplayMetrics
+import android.view.WindowManager
 import android.media.AudioManager
 import android.provider.Settings
 import android.view.Gravity
@@ -82,6 +85,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     private val arcBtns = ArrayList<View>()
     private val arcOffsets = ArrayList<Pair<Float, Float>>()
     private var laidOut = false
+    private var closing = false
     private var tabW = 0
 
     private var tvFps: TextView? = null
@@ -101,13 +105,68 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         )
         scrim.setOnClickListener { host.close() }
         root.addView(scrim, FrameLayout.LayoutParams(MATCH, MATCH))
-        root.addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ ->
-            if (!laidOut && r - l > 0 && b - t > 0) {
-                laidOut = true
-                layoutUi(r - l, b - t)
-                playIn()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun screenSize(): Pair<Int, Int> {
+        val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        return if (Build.VERSION.SDK_INT >= 30) {
+            val b = wm.currentWindowMetrics.bounds
+            Pair(b.width(), b.height())
+        } else {
+            val m = DisplayMetrics()
+            wm.defaultDisplay.getRealMetrics(m)
+            Pair(m.widthPixels, m.heightPixels)
+        }
+    }
+
+    /**
+     * Dipanggil setelah window panel ditambahkan. Tampilan dibangun langsung dari ukuran layar (tidak menunggu
+     * callback layout, yang membuat panel kadang hanya berisi lapisan gelap). Bila ada yang gagal, pesan
+     * errornya ditampilkan di layar supaya bisa dilaporkan, bukan layar hitam kosong.
+     */
+    fun start() {
+        val (w, h) = screenSize()
+        try {
+            layoutUi(w, h)
+            laidOut = true
+            playIn()
+        } catch (e: Throwable) {
+            showError(e)
+        }
+        // Jaring pengaman: kalau animasi masuk tidak berjalan (animasi dimatikan/dihemat sistem), paksa tampil.
+        root.postDelayed({ ensureVisible() }, 900)
+    }
+
+    private fun showError(e: Throwable) {
+        root.removeAllViews()
+        arcBtns.clear(); arcOffsets.clear(); pageFrames.clear(); tabLabels.clear()
+        card = null; origin = null
+        scrim.alpha = 1f
+        root.addView(scrim, FrameLayout.LayoutParams(MATCH, MATCH))
+        val where = e.stackTrace.take(3).joinToString("\n") { "${it.fileName}:${it.lineNumber}" }
+        val c = ctx.vbox(18, 16)
+        c.background = rounded(Color.parseColor("#F00F1426"), ctx.dpf(20f), NX.LINE, 1)
+        c.addView(ctx.tv("Panel gagal dimuat", 15f, NX.TEXT, 700))
+        c.add(ctx.tv("${e.javaClass.simpleName}: ${e.message ?: "-"}\n$where", 11.5f, NX.TEXT2), t = 6)
+        c.add(ctx.tv("Ketuk di mana saja untuk menutup. Kirim screenshot ini ke pengembang.", 11.5f, NX.MUTED), t = 8)
+        root.addView(c, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).also {
+            it.leftMargin = ctx.dp(24); it.rightMargin = ctx.dp(24)
+        })
+    }
+
+    private fun ensureVisible() {
+        if (closing) return
+        fun fix(v: View) {
+            if (v.alpha < 0.99f || v.scaleX < 0.99f || v.translationY != 0f || v.translationX != 0f) {
+                v.animate().cancel()
+                v.alpha = 1f; v.scaleX = 1f; v.scaleY = 1f; v.translationX = 0f; v.translationY = 0f
             }
         }
+        card?.let { fix(it) }
+        arcBtns.forEach { fix(it) }
+        origin?.let { fix(it); it.rotation = 0f }
+        if (scrim.alpha < 0.99f) { scrim.animate().cancel(); scrim.alpha = 1f }
     }
 
     // ---------- Tata letak ----------
@@ -331,6 +390,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
 
     /** Animasi keluar: busur menguncup ke tengah, kartu turun, lalu panggil [end]. */
     fun animateOut(end: () -> Unit) {
+        closing = true
         val n = arcBtns.size
         arcBtns.forEachIndexed { i, b ->
             val (dx, dy) = arcOffsets[i]
@@ -339,7 +399,9 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         }
         origin?.animate()?.scaleX(0f)?.scaleY(0f)?.rotation(90f)?.setDuration(240)?.start()
         card?.animate()?.alpha(0f)?.translationY(ctx.dpf(60f))?.setDuration(240)?.setInterpolator(AccelerateInterpolator())?.start()
-        scrim.animate().alpha(0f).setDuration(300).withEndAction(end).start()
+        scrim.animate().alpha(0f).setDuration(300).start()
+        // Hapus window lewat timer (bukan withEndAction) supaya pasti terhapus walau animasi dibatalkan.
+        root.postDelayed({ end() }, 340)
     }
 
     fun showTab(i: Int) {
