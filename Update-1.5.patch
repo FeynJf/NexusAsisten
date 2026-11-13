@@ -1,0 +1,523 @@
+diff --git a/app/build.gradle b/app/build.gradle
+index 1554df9..17011a9 100644
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -25,7 +25,7 @@ android {
+         minSdk 29
+         targetSdk 33
+         versionCode 100 + runNumber
+-        versionName "1.4"
++        versionName "1.5"
+         buildConfigField "int", "BUILD_NUMBER", "${runNumber}"
+         buildConfigField "String", "UPDATE_REPO", "\"FeynJf/NexusAsisten\""
+     }
+diff --git a/app/src/main/java/com/nexus/asisten/SettingsActivity.kt b/app/src/main/java/com/nexus/asisten/SettingsActivity.kt
+index b510750..545edfe 100644
+--- a/app/src/main/java/com/nexus/asisten/SettingsActivity.kt
++++ b/app/src/main/java/com/nexus/asisten/SettingsActivity.kt
+@@ -166,7 +166,12 @@ class SettingsActivity : AppCompatActivity() {
+             res.add(chipRow(ScreenCaptureService.RES_LABELS, Prefs.recordRes.coerceIn(0, 3)) { Prefs.recordRes = it }, t = 10, b = 4)
+             c.addView(res)
+             c.sep()
+-            c.addView(switchRow("60 fps", "Lebih halus, file lebih besar.", Prefs.recordFps60) { Prefs.recordFps60 = it })
++            val fpsBox = vbox(16, 10)
++            fpsBox.addView(tv("Frame rate (fps)", 15f, NX.TEXT, 500))
++            fpsBox.add(tv("Makin tinggi makin halus tapi file besar. Hasil nyata dibatasi refresh rate layar dan encoder HP; kalau tidak didukung otomatis diturunkan.", 12.5f, NX.TEXT2), t = 3)
++            val fo = ScreenCaptureService.FPS_OPTIONS
++            fpsBox.add(chipRow(fo.map { it.toString() }, fo.indexOf(Prefs.recordFps).coerceAtLeast(0)) { Prefs.recordFps = fo[it] }, t = 10, b = 4)
++            c.addView(fpsBox)
+         }
+     }
+ 
+diff --git a/app/src/main/java/com/nexus/asisten/core/ScreenCaptureService.kt b/app/src/main/java/com/nexus/asisten/core/ScreenCaptureService.kt
+index 412a9b8..5d18f70 100644
+--- a/app/src/main/java/com/nexus/asisten/core/ScreenCaptureService.kt
++++ b/app/src/main/java/com/nexus/asisten/core/ScreenCaptureService.kt
+@@ -61,6 +61,9 @@ class ScreenCaptureService : Service() {
+         val RES_SHORT = intArrayOf(1440, 1080, 750, 540)
+         val RES_LABELS = listOf("2K", "1K", "750p", "540p")
+ 
++        /** Pilihan frame rate rekaman. Hasil nyata dibatasi refresh rate layar & kemampuan encoder HP. */
++        val FPS_OPTIONS = listOf(30, 60, 90, 120, 200)
++
+         @Volatile var ready = false
+         @Volatile var recording = false
+         @Volatile var paused = false
+@@ -324,7 +327,7 @@ class ScreenCaptureService : Service() {
+         if (!ready || v == null || recording) return
+         if (shooting) { toast("Tunggu cuplikan selesai"); return }
+         val m = realMetrics()
+-        val fps = if (Prefs.recordFps60) 60 else 30
++        val wantFps = Prefs.recordFps.let { if (it in FPS_OPTIONS) it else 30 }
+         var useMic = Prefs.recordMic && ContextCompatMic.granted(this)
+         if (Prefs.recordMic && !useMic) toast("Izin mikrofon belum aktif, merekam tanpa suara mikrofon")
+         if (useMic && !micTyped) {
+@@ -333,10 +336,14 @@ class ScreenCaptureService : Service() {
+             if (!micTyped) { useMic = false; toast("Mikrofon tidak tersedia di sesi ini, mulai ulang rekam layar") }
+         }
+         // Coba resolusi pilihan; bila encoder tidak mendukung, turun satu tingkat sampai berhasil.
++        // Coba resolusi pilihan dengan fps pilihan; bila encoder menolak, turunkan fps dulu, baru resolusi.
++        val fpsTry = FPS_OPTIONS.filter { it <= wantFps }.sortedDescending()
+         var res = Prefs.recordRes.coerceIn(0, 3)
+         while (res <= 3) {
+             val (w, h) = sizeFor(m, res)
+-            if (tryStart(v, m, w, h, fps, useMic)) return
++            for (fps in fpsTry) {
++                if (tryStart(v, m, w, h, fps, wantFps, useMic)) return
++            }
+             res++
+         }
+         toast("Perekaman gagal dimulai")
+@@ -344,7 +351,7 @@ class ScreenCaptureService : Service() {
+         refreshNotification()
+     }
+ 
+-    private fun tryStart(v: VirtualDisplay, m: DisplayMetrics, w: Int, h: Int, fps: Int, useMic: Boolean): Boolean {
++    private fun tryStart(v: VirtualDisplay, m: DisplayMetrics, w: Int, h: Int, fps: Int, wantFps: Int, useMic: Boolean): Boolean {
+         val cv = ContentValues().apply {
+             put(MediaStore.Video.Media.DISPLAY_NAME, "Nexus_${stamp()}.mp4")
+             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+@@ -370,7 +377,8 @@ class ScreenCaptureService : Service() {
+             }
+             rec.setVideoSize(w, h)
+             rec.setVideoFrameRate(fps)
+-            val bitrate = (w.toLong() * h * fps * 0.09).toLong().coerceIn(2_000_000L, 40_000_000L).toInt()
++            val maxBitrate = if (fps >= 90) 80_000_000L else 40_000_000L
++            val bitrate = (w.toLong() * h * fps * 0.09).toLong().coerceIn(2_000_000L, maxBitrate).toInt()
+             rec.setVideoEncodingBitRate(bitrate)
+             rec.prepare()
+             v.resize(w, h, m.densityDpi)
+@@ -392,7 +400,8 @@ class ScreenCaptureService : Service() {
+         paused = false
+         recording = true
+         refreshNotification()
+-        toast("Perekaman dimulai (${w}x$h)")
++        val fpsNote = if (fps < wantFps) ", diturunkan dari $wantFps fps" else ""
++        toast("Perekaman dimulai (${w}x$h, $fps fps$fpsNote)")
+         return true
+     }
+ 
+diff --git a/app/src/main/java/com/nexus/asisten/core/Updater.kt b/app/src/main/java/com/nexus/asisten/core/Updater.kt
+index c9ee95a..6da8f8a 100644
+--- a/app/src/main/java/com/nexus/asisten/core/Updater.kt
++++ b/app/src/main/java/com/nexus/asisten/core/Updater.kt
+@@ -47,7 +47,9 @@ object Updater {
+     private const val CH = "nexus_update"
+     private val exec = Executors.newSingleThreadExecutor()
+     private val api = "https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases?per_page=10"
+-    private const val NO_RELEASE = "Belum ada rilis APK di GitHub. Pastikan workflow build.yml terbaru berada di .github/workflows/ (bukan di root repo), lalu jalankan build lagi."
++    const val NO_RELEASE = "Belum ada rilis APK di GitHub. Salin isi build.yml (di root repo) ke .github/workflows/build.yml di GitHub, lalu tunggu build selesai."
++    /** Halaman edit workflow di GitHub, untuk memperbaiki penyebab "belum ada rilis". */
++    val workflowEditUrl get() = "https://github.com/${BuildConfig.UPDATE_REPO}/edit/main/.github/workflows/build.yml"
+ 
+     fun currentLabel() = "${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_NUMBER})"
+ 
+@@ -64,6 +66,89 @@ object Updater {
+         check(ctx, false)
+     }
+ 
++    private val SITE = "https://github.com/${BuildConfig.UPDATE_REPO}"
++    private val APK_NAME = "NexusAsisten.apk"
++
++    private fun buildOf(tag: String) = Regex("(\\d+)\\s*$").find(tag)?.groupValues?.get(1)?.toIntOrNull() ?: 0
++
++    /**
++     * Cara utama, TANPA API GitHub (jadi tidak kena batas permintaan yang sering menimpa jaringan seluler):
++     * /releases/latest dialihkan ke /releases/tag/<tag>, dari situ nomor build dan URL APK diketahui.
++     */
++    private fun latestTagViaRedirect(): String? {
++        val c = URL("$SITE/releases/latest").openConnection() as HttpURLConnection
++        c.instanceFollowRedirects = false
++        c.connectTimeout = 8000
++        c.readTimeout = 8000
++        c.setRequestProperty("User-Agent", "NexusAsisten")
++        val code = c.responseCode
++        if (code in 300..399) {
++            val loc = c.getHeaderField("Location") ?: return null
++            val i = loc.indexOf("/releases/tag/")
++            return if (i >= 0) java.net.URLDecoder.decode(loc.substring(i + 14).substringBefore('?'), "UTF-8") else null
++        }
++        if (code == 404) return null
++        throw IOException("GitHub membalas kode $code")
++    }
++
++    /** Cadangan lewat API: rilis berAPK dengan nomor build tertinggi. */
++    private fun latestViaApi(): Info? {
++        val c = URL(api).openConnection() as HttpURLConnection
++        c.connectTimeout = 8000
++        c.readTimeout = 8000
++        c.setRequestProperty("Accept", "application/vnd.github+json")
++        c.setRequestProperty("User-Agent", "NexusAsisten")
++        val code = c.responseCode
++        if (code == 404) return null
++        if (code == 403 || code == 429) throw IOException("batas permintaan GitHub tercapai, coba lagi nanti")
++        if (code != 200) throw IOException("GitHub membalas kode $code")
++        val arr = JSONArray(c.inputStream.bufferedReader().use { it.readText() })
++        var best: Info? = null
++        for (n in 0 until arr.length()) {
++            val j = arr.getJSONObject(n)
++            if (j.optBoolean("draft", false)) continue
++            val tag = j.optString("tag_name")
++            val build = buildOf(tag)
++            var url = ""
++            var size = 0L
++            val assets = j.optJSONArray("assets")
++            if (assets != null) {
++                for (k in 0 until assets.length()) {
++                    val a = assets.getJSONObject(k)
++                    if (a.optString("name").endsWith(".apk")) {
++                        url = a.optString("browser_download_url")
++                        size = a.optLong("size")
++                        break
++                    }
++                }
++            }
++            if (url.isEmpty()) continue
++            if (best == null || build > best.build) best = Info(tag, build, j.optString("name", tag), j.optString("body", ""), url, size)
++        }
++        return best
++    }
++
++    /** Catatan rilis & ukuran APK (opsional; gagal pun tidak masalah). */
++    private fun enrich(i: Info): Info = try {
++        val c = URL("https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases/tags/${i.tag}").openConnection() as HttpURLConnection
++        c.connectTimeout = 5000
++        c.readTimeout = 5000
++        c.setRequestProperty("Accept", "application/vnd.github+json")
++        c.setRequestProperty("User-Agent", "NexusAsisten")
++        if (c.responseCode != 200) i else {
++            val j = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
++            var size = i.size
++            val assets = j.optJSONArray("assets")
++            if (assets != null) for (k in 0 until assets.length()) {
++                val a = assets.getJSONObject(k)
++                if (a.optString("name").endsWith(".apk")) { size = a.optLong("size"); break }
++            }
++            i.copy(title = j.optString("name", i.title), notes = j.optString("body", ""), size = size)
++        }
++    } catch (_: Exception) {
++        i
++    }
++
+     fun check(ctx: Context, manual: Boolean = true) {
+         if (stage == Stage.CHECKING || stage == Stage.DOWNLOADING || stage == Stage.INSTALLING) return
+         stage = Stage.CHECKING
+@@ -71,54 +156,25 @@ object Updater {
+         note = null
+         exec.execute {
+             try {
+-                val c = URL(api).openConnection() as HttpURLConnection
+-                c.connectTimeout = 8000
+-                c.readTimeout = 8000
+-                c.setRequestProperty("Accept", "application/vnd.github+json")
+-                c.setRequestProperty("User-Agent", "NexusAsisten")
+-                val code = c.responseCode
+-                Prefs.lastUpdateCheck = System.currentTimeMillis()
+-                if (code == 404) {
+-                    info = null
+-                    note = NO_RELEASE
+-                    stage = Stage.UPTODATE
+-                    return@execute
+-                }
+-                if (code == 403 || code == 429) throw IOException("batas permintaan GitHub tercapai, coba lagi nanti")
+-                if (code != 200) throw IOException("GitHub membalas kode $code")
+-                val arr = JSONArray(c.inputStream.bufferedReader().use { it.readText() })
+-                // Ambil rilis dengan nomor build tertinggi yang punya APK (bukan sekadar "latest" milik GitHub).
++                var redirectError: Exception? = null
++                val tag = try { latestTagViaRedirect() } catch (e: Exception) { redirectError = e; null }
+                 var best: Info? = null
+-                var seen = 0
+-                for (n in 0 until arr.length()) {
+-                    val j = arr.getJSONObject(n)
+-                    if (j.optBoolean("draft", false)) continue
+-                    val tag = j.optString("tag_name")
+-                    val build = Regex("(\\d+)\\s*$").find(tag)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+-                    var url = ""
+-                    var size = 0L
+-                    val assets = j.optJSONArray("assets")
+-                    if (assets != null) {
+-                        for (k in 0 until assets.length()) {
+-                            val a = assets.getJSONObject(k)
+-                            if (a.optString("name").endsWith(".apk")) {
+-                                url = a.optString("browser_download_url")
+-                                size = a.optLong("size")
+-                                break
+-                            }
+-                        }
+-                    }
+-                    if (url.isEmpty()) continue
+-                    seen++
+-                    if (best == null || build > best.build) best = Info(tag, build, j.optString("name", tag), j.optString("body", ""), url, size)
++                if (tag != null) {
++                    val build = buildOf(tag)
++                    best = Info(tag, build, "Nexus Asisten build $build", "", "$SITE/releases/download/$tag/$APK_NAME", 0L)
++                    if (build > BuildConfig.BUILD_NUMBER) best = enrich(best)
++                } else {
++                    best = try { latestViaApi() } catch (e: Exception) { throw redirectError ?: e }
++                    if (best == null && redirectError != null) throw redirectError
+                 }
++                Prefs.lastUpdateCheck = System.currentTimeMillis()
+                 val b = best
+                 if (b != null && b.build > BuildConfig.BUILD_NUMBER) {
+                     info = b
+                     stage = Stage.AVAILABLE
+                 } else {
+                     info = null
+-                    if (seen == 0) note = NO_RELEASE
++                    if (b == null) note = NO_RELEASE
+                     stage = Stage.UPTODATE
+                 }
+             } catch (e: Exception) {
+diff --git a/app/src/main/java/com/nexus/asisten/data/Prefs.kt b/app/src/main/java/com/nexus/asisten/data/Prefs.kt
+index 7ad9855..4a8095a 100644
+--- a/app/src/main/java/com/nexus/asisten/data/Prefs.kt
++++ b/app/src/main/java/com/nexus/asisten/data/Prefs.kt
+@@ -34,6 +34,10 @@ object Prefs {
+     var quickStart: Boolean get() = b("quick_start", true); set(v) = putB("quick_start", v)
+     var recordMic: Boolean get() = b("rec_mic", false); set(v) = putB("rec_mic", v)
+     var recordFps60: Boolean get() = b("rec_60", false); set(v) = putB("rec_60", v)
++    /** Frame rate rekaman: 30, 60, 90, 120 atau 200 (nilai lama "60 fps" ikut terbaca). */
++    var recordFps: Int
++        get() { val v = i("rec_fps", -1); return if (v > 0) v else if (recordFps60) 60 else 30 }
++        set(v) = putI("rec_fps", v)
+     var recordHd: Boolean get() = b("rec_hd", true); set(v) = putB("rec_hd", v)
+     /** Resolusi rekaman: 0 = 2K, 1 = 1K, 2 = 750p, 3 = 540p. */
+     var recordRes: Int get() = i("rec_res", 1); set(v) = putI("rec_res", v)
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/OverlayService.kt b/app/src/main/java/com/nexus/asisten/overlay/OverlayService.kt
+index 85187e1..791da6b 100644
+--- a/app/src/main/java/com/nexus/asisten/overlay/OverlayService.kt
++++ b/app/src/main/java/com/nexus/asisten/overlay/OverlayService.kt
+@@ -21,6 +21,7 @@ import android.view.Gravity
+ import android.view.MotionEvent
+ import android.view.View
+ import android.view.ViewConfiguration
++import android.view.WindowInsets
+ import android.view.WindowManager
+ import android.widget.FrameLayout
+ import android.net.wifi.WifiManager
+@@ -235,6 +236,17 @@ class OverlayService : Service(), PanelHost, RecordHost {
+             flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
+         ).also { it.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
+ 
++    @Suppress("DEPRECATION")
++    private fun handleY(ins: WindowInsets): Int {
++        val gesture = try { ins.systemGestureInsets.bottom } catch (_: Throwable) { 0 }
++        val base = maxOf(gesture, ins.systemWindowInsetBottom)
++        return when {
++            base > 0 -> base + dp(2)
++            isGestureNav() -> dp(26)
++            else -> dp(6)
++        }
++    }
++
+     private fun isGestureNav(): Boolean {
+         val id = resources.getIdentifier("config_navBarInteractionMode", "integer", "android")
+         return id > 0 && resources.getInteger(id) == 2
+@@ -251,7 +263,7 @@ class OverlayService : Service(), PanelHost, RecordHost {
+         val pill = View(this)
+         pill.background = gradientRounded(NX.ACCENT, NX.CYAN, dpf(3f))
+         pill.glow(NX.ACCENT, 6f)
+-        root.addView(pill, FrameLayout.LayoutParams(dp(64), dp(5), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also { it.bottomMargin = dp(10) })
++        root.addView(pill, FrameLayout.LayoutParams(dp(64), dp(5), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also { it.bottomMargin = dp(6) })
+         root.alpha = 0.55f
+ 
+         val params = overlayParams(
+@@ -261,8 +273,20 @@ class OverlayService : Service(), PanelHost, RecordHost {
+                 (if (Prefs.keepAwake) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0)
+         )
+         params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+-        params.y = if (isGestureNav()) maxOf(navInset(), dp(24)) + dp(12) else navInset() + dp(4)
++        params.y = dp(26)
+         handleParams = params
++        var lastY = params.y
++        // Posisi dihitung dari insets nyata perangkat: tepat di atas zona gestur sistem (gestur) atau bilah
++        // navigasi (3 tombol), jadi pill menempel di bawah-tengah layar apa pun jenis navigasinya.
++        root.setOnApplyWindowInsetsListener { v, ins ->
++            val y = handleY(ins)
++            if (y != lastY) {
++                lastY = y
++                params.y = y
++                v.post { try { wm.updateViewLayout(v, params) } catch (_: Exception) {} }
++            }
++            ins
++        }
+ 
+         var downY = 0f
+         var opened = false
+@@ -330,6 +354,7 @@ class OverlayService : Service(), PanelHost, RecordHost {
+         try {
+             wm.addView(ui.root, params)
+             panel = ui
++            ui.start()
+             handleView?.visibility = View.INVISIBLE
+             fps.start(pkg)
+             ping.start()
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/PanelUi.kt b/app/src/main/java/com/nexus/asisten/overlay/PanelUi.kt
+index d598472..6632603 100644
+--- a/app/src/main/java/com/nexus/asisten/overlay/PanelUi.kt
++++ b/app/src/main/java/com/nexus/asisten/overlay/PanelUi.kt
+@@ -5,6 +5,9 @@ import android.content.res.ColorStateList
+ import android.graphics.Color
+ import android.graphics.drawable.Drawable
+ import android.graphics.drawable.GradientDrawable
++import android.os.Build
++import android.util.DisplayMetrics
++import android.view.WindowManager
+ import android.media.AudioManager
+ import android.provider.Settings
+ import android.view.Gravity
+@@ -82,6 +85,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+     private val arcBtns = ArrayList<View>()
+     private val arcOffsets = ArrayList<Pair<Float, Float>>()
+     private var laidOut = false
++    private var closing = false
+     private var tabW = 0
+ 
+     private var tvFps: TextView? = null
+@@ -101,13 +105,68 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+         )
+         scrim.setOnClickListener { host.close() }
+         root.addView(scrim, FrameLayout.LayoutParams(MATCH, MATCH))
+-        root.addOnLayoutChangeListener { _, l, t, r, b, _, _, _, _ ->
+-            if (!laidOut && r - l > 0 && b - t > 0) {
+-                laidOut = true
+-                layoutUi(r - l, b - t)
+-                playIn()
++    }
++
++    @Suppress("DEPRECATION")
++    private fun screenSize(): Pair<Int, Int> {
++        val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
++        return if (Build.VERSION.SDK_INT >= 30) {
++            val b = wm.currentWindowMetrics.bounds
++            Pair(b.width(), b.height())
++        } else {
++            val m = DisplayMetrics()
++            wm.defaultDisplay.getRealMetrics(m)
++            Pair(m.widthPixels, m.heightPixels)
++        }
++    }
++
++    /**
++     * Dipanggil setelah window panel ditambahkan. Tampilan dibangun langsung dari ukuran layar (tidak menunggu
++     * callback layout, yang membuat panel kadang hanya berisi lapisan gelap). Bila ada yang gagal, pesan
++     * errornya ditampilkan di layar supaya bisa dilaporkan, bukan layar hitam kosong.
++     */
++    fun start() {
++        val (w, h) = screenSize()
++        try {
++            layoutUi(w, h)
++            laidOut = true
++            playIn()
++        } catch (e: Throwable) {
++            showError(e)
++        }
++        // Jaring pengaman: kalau animasi masuk tidak berjalan (animasi dimatikan/dihemat sistem), paksa tampil.
++        root.postDelayed({ ensureVisible() }, 900)
++    }
++
++    private fun showError(e: Throwable) {
++        root.removeAllViews()
++        arcBtns.clear(); arcOffsets.clear(); pageFrames.clear(); tabLabels.clear()
++        card = null; origin = null
++        scrim.alpha = 1f
++        root.addView(scrim, FrameLayout.LayoutParams(MATCH, MATCH))
++        val where = e.stackTrace.take(3).joinToString("\n") { "${it.fileName}:${it.lineNumber}" }
++        val c = ctx.vbox(18, 16)
++        c.background = rounded(Color.parseColor("#F00F1426"), ctx.dpf(20f), NX.LINE, 1)
++        c.addView(ctx.tv("Panel gagal dimuat", 15f, NX.TEXT, 700))
++        c.add(ctx.tv("${e.javaClass.simpleName}: ${e.message ?: "-"}\n$where", 11.5f, NX.TEXT2), t = 6)
++        c.add(ctx.tv("Ketuk di mana saja untuk menutup. Kirim screenshot ini ke pengembang.", 11.5f, NX.MUTED), t = 8)
++        root.addView(c, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).also {
++            it.leftMargin = ctx.dp(24); it.rightMargin = ctx.dp(24)
++        })
++    }
++
++    private fun ensureVisible() {
++        if (closing) return
++        fun fix(v: View) {
++            if (v.alpha < 0.99f || v.scaleX < 0.99f || v.translationY != 0f || v.translationX != 0f) {
++                v.animate().cancel()
++                v.alpha = 1f; v.scaleX = 1f; v.scaleY = 1f; v.translationX = 0f; v.translationY = 0f
+             }
+         }
++        card?.let { fix(it) }
++        arcBtns.forEach { fix(it) }
++        origin?.let { fix(it); it.rotation = 0f }
++        if (scrim.alpha < 0.99f) { scrim.animate().cancel(); scrim.alpha = 1f }
+     }
+ 
+     // ---------- Tata letak ----------
+@@ -331,6 +390,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+ 
+     /** Animasi keluar: busur menguncup ke tengah, kartu turun, lalu panggil [end]. */
+     fun animateOut(end: () -> Unit) {
++        closing = true
+         val n = arcBtns.size
+         arcBtns.forEachIndexed { i, b ->
+             val (dx, dy) = arcOffsets[i]
+@@ -339,7 +399,9 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+         }
+         origin?.animate()?.scaleX(0f)?.scaleY(0f)?.rotation(90f)?.setDuration(240)?.start()
+         card?.animate()?.alpha(0f)?.translationY(ctx.dpf(60f))?.setDuration(240)?.setInterpolator(AccelerateInterpolator())?.start()
+-        scrim.animate().alpha(0f).setDuration(300).withEndAction(end).start()
++        scrim.animate().alpha(0f).setDuration(300).start()
++        // Hapus window lewat timer (bukan withEndAction) supaya pasti terhapus walau animasi dibatalkan.
++        root.postDelayed({ end() }, 340)
+     }
+ 
+     fun showTab(i: Int) {
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/RecordBar.kt b/app/src/main/java/com/nexus/asisten/overlay/RecordBar.kt
+index df1a3ce..51cc40e 100644
+--- a/app/src/main/java/com/nexus/asisten/overlay/RecordBar.kt
++++ b/app/src/main/java/com/nexus/asisten/overlay/RecordBar.kt
+@@ -165,8 +165,12 @@ class RecordBar(private val ctx: Context, private val wm: WindowManager, private
+         }, t = 6)
+         settingsBox.add(title("Resolusi video"), t = 12)
+         settingsBox.add(ctx.chipRow(ScreenCaptureService.RES_LABELS, Prefs.recordRes.coerceIn(0, 3)) { Prefs.recordRes = it }, t = 6)
+-        settingsBox.add(title("Kehalusan"), t = 12)
+-        settingsBox.add(ctx.chipRow(listOf("30 fps", "60 fps"), if (Prefs.recordFps60) 1 else 0) { Prefs.recordFps60 = it == 1 }, t = 6, b = 4)
++        settingsBox.add(title("Frame rate (fps)"), t = 12)
++        val opts = ScreenCaptureService.FPS_OPTIONS
++        settingsBox.add(
++            ctx.chipRow(opts.map { it.toString() }, opts.indexOf(Prefs.recordFps).coerceAtLeast(0)) { Prefs.recordFps = opts[it] },
++            t = 6, b = 4
++        )
+     }
+ 
+     // ---------- Aksi ----------
+@@ -195,7 +199,7 @@ class RecordBar(private val ctx: Context, private val wm: WindowManager, private
+             buildSettings()
+             settingsOpen = true
+             settingsBox.visibility = View.VISIBLE
+-            card.minimumWidth = ctx.dp(264)
++            card.minimumWidth = ctx.dp(300)
+         }
+     }
+ 
+diff --git a/app/src/main/java/com/nexus/asisten/ui/UpdateCard.kt b/app/src/main/java/com/nexus/asisten/ui/UpdateCard.kt
+index 4a27c25..0109616 100644
+--- a/app/src/main/java/com/nexus/asisten/ui/UpdateCard.kt
++++ b/app/src/main/java/com/nexus/asisten/ui/UpdateCard.kt
+@@ -50,9 +50,18 @@ fun Activity.updateCard(): LinearLayout {
+             Stage.CHECKING -> show("Memeriksa pembaruan...", "Versi terpasang ${Updater.currentLabel()}", null, true, true, 0) {}
+             Stage.UPTODATE -> show(
+                 if (Updater.note != null) "Belum ada rilis untuk diunduh" else "Sudah versi terbaru",
+-                Updater.note ?: "Versi terpasang ${Updater.currentLabel()}", "Periksa lagi", false, false, 0) {
+-                Fx.say(this, "Memeriksa pembaruan...")
+-                Updater.check(this, true)
++                Updater.note ?: "Versi terpasang ${Updater.currentLabel()}",
++                if (Updater.note != null) "Buka editor workflow di GitHub" else "Periksa lagi", false, false, 0) {
++                if (Updater.note != null) {
++                    try {
++                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(Updater.workflowEditUrl)))
++                    } catch (_: Exception) {
++                        Fx.say(this, "Buka github.com lewat browser")
++                    }
++                } else {
++                    Fx.say(this, "Memeriksa pembaruan...")
++                    Updater.check(this, true)
++                }
+             }
+             Stage.AVAILABLE -> show(
+                 "Pembaruan tersedia", (i?.title ?: "Versi baru") + size + "\n" + (i?.notes?.lineSequence()?.firstOrNull { it.isNotBlank() } ?: ""),
