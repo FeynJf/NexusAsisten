@@ -741,8 +741,13 @@ class OverlayService : Service(), PanelHost, RecordHost {
         handler.postDelayed({
             try {
                 val canFloat = Prefs.floatingWindow && GameUtils.freeformSupported(this)
+                val web = MiniWindow.siteFor(pkg, name)
                 if (canFloat && GameUtils.launchFloating(this, pkg, Prefs.floatSize)) {
                     toast("$name dibuka sebagai jendela mengambang")
+                } else if (web != null) {
+                    // HP tanpa jendela mengambang: pakai Jendela mini bawaan dengan versi web aplikasi ini.
+                    val m = mini ?: MiniWindow(this, wm) { mini = null }.also { mini = it }
+                    m.show(web)
                 } else {
                     // Tanpa izin atau pengaturan tambahan: buka penuh, lalu gelembung Nexus untuk kembali ke game.
                     GameUtils.launch(this, pkg)

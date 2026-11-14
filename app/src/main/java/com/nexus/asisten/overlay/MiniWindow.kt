@@ -55,6 +55,44 @@ class MiniWindow(
             Site("WhatsApp", "https://web.whatsapp.com", true),
             Site("Instagram", "https://www.instagram.com")
         )
+        private val WEB = mapOf(
+            "com.whatsapp" to Site("WhatsApp", "https://web.whatsapp.com", true),
+            "com.whatsapp.w4b" to Site("WhatsApp", "https://web.whatsapp.com", true),
+            "com.google.android.youtube" to Site("YouTube", "https://m.youtube.com"),
+            "com.google.android.apps.youtube.music" to Site("YouTube Music", "https://music.youtube.com", true),
+            "com.instagram.android" to Site("Instagram", "https://www.instagram.com"),
+            "com.facebook.katana" to Site("Facebook", "https://m.facebook.com"),
+            "com.facebook.lite" to Site("Facebook", "https://m.facebook.com"),
+            "com.facebook.orca" to Site("Messenger", "https://www.messenger.com", true),
+            "com.zhiliaoapp.musically" to Site("TikTok", "https://www.tiktok.com"),
+            "com.ss.android.ugc.trill" to Site("TikTok", "https://www.tiktok.com"),
+            "org.telegram.messenger" to Site("Telegram", "https://web.telegram.org/a/", true),
+            "org.telegram.messenger.web" to Site("Telegram", "https://web.telegram.org/a/", true),
+            "com.discord" to Site("Discord", "https://discord.com/app", true),
+            "com.twitter.android" to Site("X", "https://x.com"),
+            "com.spotify.music" to Site("Spotify", "https://open.spotify.com", true),
+            "com.google.android.gm" to Site("Gmail", "https://mail.google.com"),
+            "com.google.android.apps.maps" to Site("Maps", "https://www.google.com/maps"),
+            "com.google.android.apps.messaging" to Site("Pesan", "https://messages.google.com/web", true),
+            "com.google.android.apps.photos" to Site("Foto", "https://photos.google.com"),
+            "com.google.android.apps.docs" to Site("Drive", "https://drive.google.com"),
+            "com.android.chrome" to Site("Google", "https://www.google.com"),
+            "org.mozilla.firefox" to Site("Google", "https://www.google.com"),
+            "com.microsoft.emmx" to Site("Bing", "https://www.bing.com"),
+            "com.reddit.frontpage" to Site("Reddit", "https://www.reddit.com"),
+            "com.pinterest" to Site("Pinterest", "https://www.pinterest.com"),
+            "com.netflix.mediaclient" to Site("Netflix", "https://www.netflix.com"),
+            "com.snapchat.android" to Site("Snapchat", "https://web.snapchat.com", true),
+            "com.shopee.id" to Site("Shopee", "https://shopee.co.id"),
+            "com.tokopedia.tkpd" to Site("Tokopedia", "https://www.tokopedia.com"),
+            "com.lazada.android" to Site("Lazada", "https://www.lazada.co.id"),
+            "com.linkedin.android" to Site("LinkedIn", "https://www.linkedin.com"),
+            "tv.twitch.android.app" to Site("Twitch", "https://m.twitch.tv")
+        )
+
+        /** Padanan versi web sebuah aplikasi (null bila tidak ada), supaya bisa dibuka sebagai jendela mini. */
+        fun siteFor(pkg: String, label: String): Site? = WEB[pkg]?.let { Site(label, it.url, it.desktop) }
+
         private const val DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
         private var sx = -1
@@ -70,6 +108,7 @@ class MiniWindow(
     private var bar: View? = null
     private var typing = false
     private var anim: Motion.Handle? = null
+    private var addrView: android.widget.EditText? = null
 
     val shown: Boolean get() = root != null
 
@@ -118,6 +157,32 @@ class MiniWindow(
         head.add(btn(R.drawable.ic_close) { hide() }, ctx.dp(34), ctx.dp(34))
         col.add(head, ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(40))
         bar = head
+
+        // --- Bilah alamat: ketik alamat situs atau kata pencarian ---
+        val addr = android.widget.EditText(ctx)
+        addr.setSingleLine()
+        addr.hint = "Cari atau ketik alamat situs"
+        addr.textSize = 12.5f
+        addr.setTextColor(NX.TEXT)
+        addr.setHintTextColor(NX.MUTED)
+        addr.setPadding(ctx.dp(12), 0, ctx.dp(12), 0)
+        addr.background = rounded(withAlpha(Color.WHITE, 0x12), ctx.dpf(12f), withAlpha(NX.CYAN, 0x44), 1)
+        addr.inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
+        addr.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_GO
+        addr.setOnEditorActionListener { v, _, _ ->
+            go(v.text.toString())
+            true
+        }
+        // Mengetuk bilah alamat otomatis mengaktifkan keyboard.
+        addr.setOnTouchListener { v, e ->
+            if (e.actionMasked == MotionEvent.ACTION_DOWN && !typing) { toggleTyping(aa); v.post { v.requestFocus() } }
+            false
+        }
+        addrView = addr
+        val addrWrap = FrameLayout(ctx)
+        addrWrap.setPadding(ctx.dp(8), 0, ctx.dp(8), ctx.dp(6))
+        addrWrap.addView(addr, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(36)))
+        col.add(addrWrap, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
         // --- Pintasan situs ---
         val chips = ctx.hbox()
@@ -234,7 +299,23 @@ class MiniWindow(
         val wv = web ?: return
         wv.settings.userAgentString = if (site.desktop) DESKTOP_UA else null
         titleView?.text = site.name
+        addrView?.setText("")
         wv.loadUrl(site.url)
+    }
+
+    /** Memuat alamat: jika berupa domain, buka langsung; kalau bukan, cari di Google. */
+    private fun go(raw: String) {
+        val t = raw.trim()
+        if (t.isEmpty()) return
+        val url = when {
+            t.startsWith("http://") || t.startsWith("https://") -> t
+            !t.contains(' ') && t.contains('.') -> "https://$t"
+            else -> "https://www.google.com/search?q=" + java.net.URLEncoder.encode(t, "UTF-8")
+        }
+        web?.settings?.userAgentString = null
+        web?.loadUrl(url)
+        titleView?.text = t
+        addrView?.clearFocus()
     }
 
     private fun toggleTyping(label: TextView) {
@@ -248,7 +329,7 @@ class MiniWindow(
         val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         if (typing) {
             web?.requestFocus()
-            r.postDelayed({ web?.let { imm.showSoftInput(it, InputMethodManager.SHOW_IMPLICIT) } }, 180)
+            r.postDelayed({ (r.findFocus() ?: web)?.let { imm.showSoftInput(it, InputMethodManager.SHOW_IMPLICIT) } }, 220)
         } else {
             imm.hideSoftInputFromWindow(r.windowToken, 0)
         }

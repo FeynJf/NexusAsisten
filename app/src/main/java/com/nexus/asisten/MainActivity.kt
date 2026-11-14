@@ -34,6 +34,7 @@ import com.nexus.asisten.data.PlayStats
 import com.nexus.asisten.data.Prefs
 import com.nexus.asisten.overlay.OverlayService
 import com.nexus.asisten.ui.*
+import com.nexus.asisten.core.Avatar
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
@@ -180,6 +181,19 @@ class MainActivity : AppCompatActivity() {
         t.addView(tv("NEXUS", 26f, NX.TEXT, 700).also { it.letterSpacing = 0.26f })
         t.add(tv("Halo, ${Prefs.userName}", 12.5f, NX.TEXT2), t = 0)
         bar.add(t, 0, WRAP, 1f)
+        val av = FrameLayout(this)
+        av.background = rounded(0, dpf(22f), withAlpha(NX.CYAN, 0xAA), dp(2))
+        av.setPadding(dp(3), dp(3), dp(3), dp(3))
+        val avIv = android.widget.ImageView(this)
+        avIv.scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+        avIv.background = circle(NX.SURFACE2)
+        avIv.clipToOutline = true
+        avIv.outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+        Avatar.into(this, avIv)
+        av.addView(avIv, FrameLayout.LayoutParams(MATCH, MATCH))
+        av.setOnClickListener { startActivity(Intent(this, ProfileActivity::class.java)) }
+        av.pressFx(0.9f)
+        bar.add(av, dp(44), dp(44), 0f, 0, 0, 10, 0)
         val set = FrameLayout(this)
         val r = dpf(15f)
         set.rippleBg(rounded(withAlpha(Color.WHITE, 0x10), r, NX.LINE, 1), r)
@@ -234,15 +248,15 @@ class MainActivity : AppCompatActivity() {
         val g = games.first { it.pkg == selected }
         val prof = Prefs.profile(g.pkg)
         val hero = vbox(20, 20)
-        hero.background = GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(Color.parseColor("#5B34F5"), Color.parseColor("#2A1A7A"), Color.parseColor("#120F36"), Color.parseColor("#06070F"))
-        ).also { it.cornerRadius = dpf(30f); it.setStroke(dp(1), withAlpha(NX.CYAN, 0x66)) }
+        hero.background = NeonDrawable(
+            Color.parseColor("#FF3A22C4"), Color.parseColor("#FF080A1C"), dpf(30f),
+            withAlpha(Color.WHITE, 0x66), withAlpha(NX.CYAN, 0x88), dpf(1.4f)
+        )
         hero.glow(NX.ACCENT, 18f)
         val top = hbox()
-        val ic = appIcon(g.icon, 76, 22)
-        ic.glow(NX.CYAN, 12f)
-        top.add(ic, dp(76), dp(76), 0f, 0, 0, 16, 0)
+        val ic = appIcon(g.icon, 84, 24)
+        ic.glow(NX.CYAN, 14f)
+        top.add(ic, dp(84), dp(84), 0f, 0, 0, 16, 0)
         val info = vbox()
         info.addView(tv(g.name, 22f, NX.TEXT, 700).also { it.maxLines = 2 })
         val m30 = PlayStats.last30(this, listOf(g.pkg))[g.pkg] ?: 0L
@@ -297,13 +311,13 @@ class MainActivity : AppCompatActivity() {
         root.add(c, b = 18)
     }
 
-    private fun quickTile(iconRes: Int, title: String, sub: String, onClick: () -> Unit): View {
+    private fun quickTile(iconRes: Int, title: String, sub: String, accent: Int = NX.ACCENT, onClick: () -> Unit): View {
         val v = vbox(14, 14)
-        v.background = NeonDrawable(Color.parseColor("#F0111729"), Color.parseColor("#F00A0D17"), dpf(22f), strokePx = dpf(1.2f))
+        v.background = NeonDrawable(Color.parseColor("#E6141A33"), Color.parseColor("#EE090B18"), dpf(22f), strokePx = dpf(1.2f))
         val badge = FrameLayout(this)
-        badge.background = gradientRounded(withAlpha(NX.ACCENT, 0x55), withAlpha(NX.BLUE, 0x33), dpf(14f), GradientDrawable.Orientation.TL_BR)
-            .also { it.setStroke(1, withAlpha(NX.ACCENT, 0x88)) }
-        badge.addView(icon(iconRes, NX.CYAN, 22), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+        badge.background = gradientRounded(withAlpha(accent, 0x66), withAlpha(accent, 0x1E), dpf(14f), GradientDrawable.Orientation.TL_BR)
+            .also { it.setStroke(1, withAlpha(accent, 0xAA)) }
+        badge.addView(icon(iconRes, Color.WHITE, 22), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
         v.add(badge, dp(42), dp(42))
         v.add(tv(title, 15f, NX.TEXT, 700), t = 12)
         v.add(tv(sub, 11.5f, NX.TEXT2).also { it.maxLines = 2 }, t = 2)
@@ -315,14 +329,16 @@ class MainActivity : AppCompatActivity() {
     private fun buildQuickGrid() {
         root.add(sectionTitle("Akses cepat"), b = 10)
         val tiles = ArrayList<View>()
-        if (Prefs.albumEnabled) tiles.add(quickTile(R.drawable.ic_photo, "Album", "Cuplikan & rekaman") {
+        if (Prefs.albumEnabled) tiles.add(quickTile(R.drawable.ic_photo, "Album", "Cuplikan & rekaman", NX.MAGENTA) {
             startActivity(Intent(this, AlbumActivity::class.java))
         })
-        tiles.add(quickTile(R.drawable.ic_gamepad, "Kelola game", "Tambah atau hapus") { openPicker() })
-        tiles.add(quickTile(R.drawable.ic_monitor, "Aplikasi overlay", "Dibuka jendela mengambang") {
+        tiles.add(quickTile(R.drawable.ic_gamepad, "Kelola game", "Tambah atau hapus", NX.CYAN) { openPicker() })
+        tiles.add(quickTile(R.drawable.ic_monitor, "Aplikasi saya", "Jendela mini di atas game", NX.BLUE) {
             startActivity(Intent(this, GamePickerActivity::class.java).putExtra(GamePickerActivity.EXTRA_MODE, GamePickerActivity.MODE_DOCK))
         })
-        tiles.add(quickTile(R.drawable.ic_person, "Profil", Prefs.userName) { renameDialog() })
+        tiles.add(quickTile(R.drawable.ic_person, "Profil", if (Prefs.googleEmail.isNotEmpty()) Prefs.googleEmail else "Masuk dengan Google", NX.GOOD) {
+            startActivity(Intent(this, ProfileActivity::class.java))
+        })
         var i = 0
         while (i < tiles.size) {
             val row = hbox(false)

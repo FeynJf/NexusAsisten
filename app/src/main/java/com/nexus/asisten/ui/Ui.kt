@@ -52,41 +52,57 @@ object NX {
 
 fun withAlpha(color: Int, alpha: Int): Int = (color and 0x00FFFFFF) or (alpha.coerceIn(0, 255) shl 24)
 
-/** Latar layar: hitam dengan cahaya neon violet (kanan atas) dan cyan (kiri). */
-fun screenBg(): Drawable {
-    val d = Resources.getSystem().displayMetrics.density
-    val base = GradientDrawable(
-        GradientDrawable.Orientation.TOP_BOTTOM,
-        intArrayOf(Color.parseColor("#0D0A24"), NX.BG, Color.parseColor("#03040A"))
-    )
-    val glowA = GradientDrawable().apply {
-        gradientType = GradientDrawable.RADIAL_GRADIENT
-        setGradientCenter(0.92f, 0.02f)
-        gradientRadius = 380f * d
-        colors = intArrayOf(withAlpha(NX.ACCENT, 0x46), 0)
+/** Latar layar "Obsidian Aurora": hitam pekat, cahaya aurora violet/cyan/magenta, dan kisi titik halus. */
+class AuroraBg : Drawable() {
+    private val base = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val a1 = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val a2 = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val a3 = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val dots = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val fade = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    override fun onBoundsChange(b: android.graphics.Rect) {
+        val w = b.width().toFloat()
+        val h = b.height().toFloat()
+        base.shader = LinearGradient(0f, 0f, 0f, h, intArrayOf(Color.parseColor("#0E0A28"), NX.BG, Color.parseColor("#030409")), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+        a1.shader = android.graphics.RadialGradient(w * 0.95f, h * 0.02f, w * 1.0f, intArrayOf(withAlpha(NX.ACCENT, 0x58), 0), null, Shader.TileMode.CLAMP)
+        a2.shader = android.graphics.RadialGradient(0f, h * 0.38f, w * 0.85f, intArrayOf(withAlpha(NX.CYAN, 0x26), 0), null, Shader.TileMode.CLAMP)
+        a3.shader = android.graphics.RadialGradient(w * 0.9f, h * 0.97f, w * 0.9f, intArrayOf(withAlpha(NX.MAGENTA, 0x2A), 0), null, Shader.TileMode.CLAMP)
+        val d = Resources.getSystem().displayMetrics.density
+        val ts = (20f * d).toInt().coerceAtLeast(12)
+        val bmp = android.graphics.Bitmap.createBitmap(ts, ts, android.graphics.Bitmap.Config.ARGB_8888)
+        Canvas(bmp).drawCircle(ts / 2f, ts / 2f, d * 0.9f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1CFFFFFF })
+        dots.shader = android.graphics.BitmapShader(bmp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        // Kisi titik memudar ke bawah supaya konten tetap bersih.
+        fade.shader = LinearGradient(0f, 0f, 0f, h, intArrayOf(0x00000000, 0x00030409, 0xFF030409.toInt()), floatArrayOf(0f, 0.25f, 0.85f), Shader.TileMode.CLAMP)
     }
-    val glowB = GradientDrawable().apply {
-        gradientType = GradientDrawable.RADIAL_GRADIENT
-        setGradientCenter(0.0f, 0.42f)
-        gradientRadius = 300f * d
-        colors = intArrayOf(withAlpha(NX.CYAN, 0x1C), 0)
+
+    override fun draw(c: Canvas) {
+        val r = RectF(bounds)
+        c.drawRect(r, base); c.drawRect(r, a1); c.drawRect(r, a2); c.drawRect(r, a3)
+        val n = c.saveLayer(r, null)
+        c.drawRect(r, dots)
+        fade.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
+        c.drawRect(r, fade)
+        fade.xfermode = null
+        c.restoreToCount(n)
     }
-    val glowC = GradientDrawable().apply {
-        gradientType = GradientDrawable.RADIAL_GRADIENT
-        setGradientCenter(0.95f, 0.98f)
-        gradientRadius = 320f * d
-        colors = intArrayOf(withAlpha(NX.MAGENTA, 0x22), 0)
-    }
-    return LayerDrawable(arrayOf(base, glowA, glowB, glowC))
+
+    override fun setAlpha(alpha: Int) {}
+    override fun setColorFilter(cf: ColorFilter?) {}
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity() = PixelFormat.OPAQUE
 }
+
+fun screenBg(): Drawable = AuroraBg()
 
 /** Kartu kaca hitam dengan garis tepi gradien neon (stroke gradien tidak ada di GradientDrawable, jadi digambar manual). */
 class NeonDrawable(
     private val top: Int,
     private val bottom: Int,
     private val radius: Float,
-    private val c1: Int = withAlpha(NX.ACCENT, 0x99),
-    private val c2: Int = withAlpha(NX.CYAN, 0x66),
+    private val c1: Int = withAlpha(Color.WHITE, 0x50),
+    private val c2: Int = withAlpha(NX.ACCENT, 0x70),
     private val strokePx: Float = 1.5f
 ) : Drawable() {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -99,12 +115,12 @@ class NeonDrawable(
         // Kilau kaca tipis di bagian atas kartu.
         sheen.shader = LinearGradient(
             0f, b.top.toFloat(), 0f, b.top + b.height() * 0.5f,
-            0x1AFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP
+            0x26FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP
         )
-        // Tepi neon tiga warna: violet -> cyan -> magenta, mengalir diagonal.
+        // Tepi kaca: putih lembut di sudut atas-kiri, violet di tengah, cyan tipis di sudut bawah-kanan.
         line.shader = LinearGradient(
             b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat(),
-            intArrayOf(c1, c2, withAlpha(NX.MAGENTA, 0x55)), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
+            intArrayOf(c1, c2, withAlpha(NX.CYAN, 0x55)), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
         )
         line.strokeWidth = strokePx
     }
@@ -208,7 +224,7 @@ fun Context.card(radiusDp: Int = 22, color: Int = NX.SURFACE): LinearLayout = Li
     orientation = LinearLayout.VERTICAL
     val r = dpf(radiusDp.toFloat())
     background = if (color == NX.SURFACE)
-        NeonDrawable(Color.parseColor("#F2131A33"), Color.parseColor("#F20A0D1A"), r, strokePx = dpf(1.3f))
+        NeonDrawable(Color.parseColor("#E6161C38"), Color.parseColor("#EE090B18"), r, strokePx = dpf(1.2f))
     else rounded(color, r, NX.LINE, 1)
     clipToOutline = false
 }

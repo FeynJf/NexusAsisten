@@ -26,6 +26,17 @@ object Prefs {
         get() = s.getString("user", "Gamer") ?: "Gamer"
         set(v) = s.edit().putString("user", v).apply()
 
+    // Akun Google (profil)
+    var googleEmail: String
+        get() = s.getString("g_email", "") ?: ""
+        set(v) = s.edit().putString("g_email", v).apply()
+    var googleName: String
+        get() = s.getString("g_name", "") ?: ""
+        set(v) = s.edit().putString("g_name", v).apply()
+    var googlePhoto: String
+        get() = s.getString("g_photo", "") ?: ""
+        set(v) = s.edit().putString("g_photo", v).apply()
+
     // Pengaturan umum
     var openAnimation: Boolean get() = b("open_anim", true); set(v) = putB("open_anim", v)
     var panelBlur: Boolean get() = b("panel_blur", true); set(v) = putB("panel_blur", v)

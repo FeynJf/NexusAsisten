@@ -80,7 +80,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     val root = FrameLayout(ctx)
     private val scrim = View(ctx)
     private var card: FrameLayout? = null
-    private var sheet: SheetDrawable? = null
+    private var sheet: DomeDrawable? = null
     private lateinit var pager: SnapPager
     private lateinit var tabPill: View
     private val tabLabels = ArrayList<TextView>()
@@ -213,78 +213,123 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         startPulse()
     }
 
-    // ---------- Tata letak ----------
+    // ---------- Tata letak: kubah 180° layar penuh ----------
+    private var arcFromX = FloatArray(0)
+    private var arcFromY = FloatArray(0)
+
     private fun layoutUi(w: Int, h: Int) {
         val land = w > h
-        val margin = ctx.dp(8)
-        val navB = if (land) 0 else ctx.navInset()
         val status = if (land) 0 else ctx.statusInset()
-        val sheetW: Int
-        val sheetH: Int
+        val bottomM = if (land) ctx.dp(6) else ctx.navInset() + ctx.dp(6)
+        val a: Int
+        val rho: Int
+        val total: Int
         if (land) {
-            sheetW = min(w - 2 * margin, ctx.dp(780))
-            sheetH = min(h - 2 * margin, ctx.dp(336))
+            a = min(w / 2 - ctx.dp(6), ctx.dp(440))
+            total = h - bottomM - ctx.dp(6)
+            rho = min(ctx.dp(150), (total * 0.42f).toInt())
         } else {
-            sheetW = min(w - 2 * margin, ctx.dp(520))
-            sheetH = min(((h - status - navB - ctx.dp(24)) * 0.9f).toInt(), ctx.dp(640))
+            a = w / 2 - ctx.dp(4)
+            rho = a
+            total = min(h - status - bottomM - ctx.dp(6), ctx.dp(760))
         }
+        val s = total - rho
+        val fw = 2 * a
+        val inset = ctx.dp(34)
         val padH = ctx.dp(16)
+        val innerW = fw - 2 * padH
+
         val frame = FrameLayout(ctx)
-        frame.background = SheetDrawable(ctx.dpf(28f), ctx.dpf(1f)).also { sheet = it }
+        frame.background = DomeDrawable(a.toFloat(), rho.toFloat(), s.toFloat(), inset.toFloat(), ctx.dpf(26f), ctx.dpf(1f)).also { sheet = it }
         frame.isClickable = true
 
-        val body = LinearLayout(ctx)
-        body.setPadding(padH, ctx.dp(20), padH, ctx.dp(12))
-        val innerW = sheetW - 2 * padH
-        if (land) {
-            body.orientation = LinearLayout.HORIZONTAL
-            val gap = ctx.dp(14)
-            val leftW = ((innerW - gap) * 0.44f).toInt()
-            val rightW = innerW - gap - leftW
-            val left = ctx.vbox()
-            val header = buildHeader()
-            val hud = buildHud(true)
-            val actions = buildActions()
-            left.add(header, MATCH, ctx.dp(44))
-            left.add(hud, MATCH, ctx.dp(88), 0f, 0, 10, 0, 0)
-            left.add(actions, MATCH, WRAP, 0f, 0, 12, 0, 0)
-            sections += listOf(header, hud, actions)
-            val right = ctx.vbox()
-            val tabs = buildTabs(rightW)
-            right.add(tabs, MATCH, ctx.dp(40))
-            sections += tabs
-            right.add(buildPager(rightW), MATCH, 0, 1f, 0, 6, 0, 0)
-            body.add(left, leftW, MATCH, 0f, 0, 0, 14, 0)
-            body.add(right, 0, MATCH, 1f)
-            attachDrag(header)
-        } else {
-            body.orientation = LinearLayout.VERTICAL
-            val header = buildHeader()
-            val hud = buildHud(false)
-            val actions = buildActions()
-            val tabs = buildTabs(innerW)
-            body.add(header, MATCH, ctx.dp(44))
-            body.add(hud, MATCH, ctx.dp(96), 0f, 0, 12, 0, 0)
-            body.add(actions, MATCH, WRAP, 0f, 0, 14, 0, 0)
-            body.add(tabs, MATCH, ctx.dp(40), 0f, 0, 14, 0, 0)
-            body.add(buildPager(innerW), MATCH, 0, 1f, 0, 6, 0, 0)
-            sections += listOf(header, hud, actions, tabs)
-            attachDrag(header)
-        }
-        frame.addView(body, FrameLayout.LayoutParams(MATCH, MATCH))
+        fun lp(wid: Int, hei: Int, gravity: Int, l: Int = 0, t: Int = 0, r: Int = 0) =
+            FrameLayout.LayoutParams(wid, hei, gravity).also { it.leftMargin = l; it.topMargin = t; it.rightMargin = r }
 
-        // Zona seret di puncak (pegangan).
+        // --- Tombol aksi cepat berjajar di sepanjang busur ---
+        val items = listOf(
+            ArcItem(R.drawable.ic_bolt, "Boost", null) { host.boost() },
+            ArcItem(R.drawable.ic_scissors, "Cuplikan", null) { host.screenshot() },
+            ArcItem(R.drawable.ic_video, "Rekam", { host.isRecording() }) { host.toggleRecord() },
+            ArcItem(R.drawable.ic_bell, "Senyap", { Booster.dndOn(ctx) }) { host.setDnd(!Booster.dndOn(ctx)) },
+            ArcItem(R.drawable.ic_crosshair, "Bidik", { Prefs.crosshair }) { host.setCrosshair(!Prefs.crosshair) },
+            ArcItem(R.drawable.ic_hand, "Kunci tepi", { Prefs.edgeGuard }) { host.setEdgeGuard(!Prefs.edgeGuard) },
+            ArcItem(R.drawable.ic_monitor, "Jendela", null) { if (::pager.isInitialized) pager.snapTo(2) }
+        )
+        val ra = (a - inset).toFloat()
+        val rb = (rho - inset).toFloat()
+        val bw = ctx.dp(60)
+        val bh = ctx.dp(64)
+        arcFromX = FloatArray(items.size)
+        arcFromY = FloatArray(items.size)
+        items.forEachIndexed { i, item ->
+            val th = Math.PI + Math.PI * (i + 0.5) / items.size
+            val x = a + ra * Math.cos(th).toFloat()
+            val y = rho + rb * Math.sin(th).toFloat()
+            val v = arcButton(item)
+            quickBtns.add(v)
+            frame.addView(v, lp(bw, bh, Gravity.TOP or Gravity.START, (x - bw / 2f).toInt(), (y - bh / 2f).toInt()))
+            arcFromX[i] = a - x
+            arcFromY[i] = rho - y
+        }
+
+        // --- HUD di dalam busur ---
+        val hudViews = ArrayList<View>()
+        if (land) {
+            val row = ctx.hbox(false)
+            val fps = buildFps(true)
+            val grid = buildChips(true)
+            row.add(fps, ctx.dp(170), MATCH, 0f, 0, 0, 10, 0)
+            row.add(grid, ctx.dp(196), MATCH)
+            frame.addView(row, lp(WRAP, ctx.dp(74), Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, ctx.dp(72)))
+            hudViews += row
+        } else {
+            val chipsW = min(fw - ctx.dp(56), ctx.dp(320))
+            val chips = buildChips(false)
+            val chipsTop = rho - ctx.dp(46)
+            frame.addView(chips, lp(chipsW, ctx.dp(38), Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, chipsTop))
+            val fps = buildFps(false)
+            frame.addView(fps, lp(min(fw - ctx.dp(80), ctx.dp(260)), ctx.dp(56), Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, chipsTop - ctx.dp(62)))
+            hudViews += listOf(chips, fps)
+        }
+
+        // --- Header, tab, dan halaman di bagian lurus bawah busur ---
+        val top: Int
+        val pagerTop: Int
+        val header: LinearLayout
+        if (land) {
+            val tabs = buildTabs(ctx.dp(330))
+            header = buildHeader(tabs, ctx.dp(330))
+            top = rho + ctx.dp(6)
+            pagerTop = rho + ctx.dp(58)
+            frame.addView(header, lp(MATCH, ctx.dp(44), Gravity.TOP or Gravity.START, padH, top, padH))
+            sections += header
+        } else {
+            header = buildHeader(null, 0)
+            top = rho + ctx.dp(10)
+            pagerTop = rho + ctx.dp(106)
+            frame.addView(header, lp(MATCH, ctx.dp(44), Gravity.TOP or Gravity.START, padH, top, padH))
+            val tabs = buildTabs(innerW)
+            frame.addView(tabs, lp(MATCH, ctx.dp(40), Gravity.TOP or Gravity.START, padH, rho + ctx.dp(60), padH))
+            sections += header
+            sections += tabs
+        }
+        sections += hudViews
+        val pagerH = (total - pagerTop - ctx.dp(12)).coerceAtLeast(ctx.dp(120))
+        frame.addView(buildPager(innerW), lp(innerW, pagerH, Gravity.TOP or Gravity.START, padH, pagerTop))
+        attachDrag(header)
+
+        // Zona seret di puncak kubah.
         val grab = View(ctx)
-        frame.addView(grab, FrameLayout.LayoutParams(MATCH, ctx.dp(22), Gravity.TOP))
+        frame.addView(grab, lp(ctx.dp(180), ctx.dp(30), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         attachDrag(grab)
 
-        val bm = margin + navB
-        root.addView(frame, FrameLayout.LayoutParams(sheetW, sheetH, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also {
-            it.bottomMargin = bm
+        root.addView(frame, FrameLayout.LayoutParams(fw, total, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also {
+            it.bottomMargin = bottomM
         })
-        frame.pivotX = sheetW / 2f
-        frame.pivotY = sheetH.toFloat()
-        cardH = sheetH + bm
+        frame.pivotX = fw / 2f
+        frame.pivotY = total.toFloat()
+        cardH = total + bottomM
         card = frame
         onPagePos(0f)
 
@@ -293,41 +338,46 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         frame.translationY = (cardH + ctx.dp(24)).toFloat()
         scrim.alpha = 0f
         sections.forEach { it.alpha = 0f; it.translationY = ctx.dpf(18f) }
-        quickBtns.forEach { it.alpha = 0f; it.scaleX = 0.6f; it.scaleY = 0.6f }
+        quickBtns.forEachIndexed { i, b ->
+            b.alpha = 0f; b.scaleX = 0.5f; b.scaleY = 0.5f
+            b.translationX = arcFromX[i]; b.translationY = arcFromY[i]
+        }
     }
 
-    private fun buildHeader(): LinearLayout {
+    private fun buildHeader(tabs: View?, tabsW: Int): LinearLayout {
         val row = ctx.hbox()
         val iconBox = FrameLayout(ctx)
         iconBox.setPadding(ctx.dp(2), ctx.dp(2), ctx.dp(2), ctx.dp(2))
-        iconBox.background = rounded(0, ctx.dpf(15f), withAlpha(NX.CYAN, 0x99), ctx.dp(1))
+        iconBox.background = rounded(0, ctx.dpf(14f), withAlpha(NX.CYAN, 0x99), ctx.dp(1))
         val iv = ImageView(ctx)
         val gi = host.gameIcon()
         if (gi != null) iv.setImageDrawable(gi) else { iv.setImageResource(R.drawable.ic_gamepad); iv.setColorFilter(NX.CYAN); iv.setPadding(ctx.dp(8), ctx.dp(8), ctx.dp(8), ctx.dp(8)) }
         iv.scaleType = ImageView.ScaleType.CENTER_CROP
-        iv.background = rounded(NX.SURFACE2, ctx.dpf(13f))
+        iv.background = rounded(NX.SURFACE2, ctx.dpf(12f))
         iv.clipToOutline = true
         iv.outlineProvider = ViewOutlineProvider.BACKGROUND
         iconBox.addView(iv, FrameLayout.LayoutParams(MATCH, MATCH))
-        row.add(iconBox, ctx.dp(44), ctx.dp(44), 0f, 0, 0, 12, 0)
+        row.add(iconBox, ctx.dp(42), ctx.dp(42), 0f, 0, 0, 10, 0)
 
         val names = ctx.vbox()
-        val name = ctx.tv(host.gameName, 16.5f, NX.TEXT, 700)
+        val name = ctx.tv(host.gameName, 15.5f, NX.TEXT, 700)
         name.maxLines = 1
         name.ellipsize = android.text.TextUtils.TruncateAt.END
         names.addView(name)
-        names.add(ctx.tv("Asisten Game aktif", 11f, NX.MUTED, 500), t = 1)
+        names.add(ctx.tv("Asisten Game aktif", 10.5f, NX.MUTED, 500), t = 1)
         row.add(names, 0, WRAP, 1f)
 
         val live = ctx.hbox()
-        live.setPadding(ctx.dp(9), ctx.dp(4), ctx.dp(10), ctx.dp(4))
+        live.setPadding(ctx.dp(8), ctx.dp(4), ctx.dp(9), ctx.dp(4))
         live.background = rounded(withAlpha(NX.GOOD, 0x22), ctx.dpf(11f), withAlpha(NX.GOOD, 0x77), 1)
         val dot = View(ctx)
         dot.background = circle(NX.GOOD)
         liveDot = dot
-        live.add(dot, ctx.dp(6), ctx.dp(6), 0f, 0, 0, 6, 0)
-        live.addView(ctx.tv("LIVE", 10f, NX.GOOD, 700).also { it.letterSpacing = 0.14f })
-        row.add(live, WRAP, WRAP, 0f, 0, 0, 10, 0)
+        live.add(dot, ctx.dp(6), ctx.dp(6), 0f, 0, 0, 5, 0)
+        live.addView(ctx.tv("LIVE", 9.5f, NX.GOOD, 700).also { it.letterSpacing = 0.14f })
+        row.add(live, WRAP, WRAP, 0f, 8, 0, 10, 0)
+
+        if (tabs != null) row.add(tabs, tabsW, ctx.dp(40), 0f, 0, 0, 10, 0)
 
         val close = FrameLayout(ctx)
         close.background = NeonDrawable(Color.parseColor("#F0141A2E"), Color.parseColor("#F00A0D18"), ctx.dpf(17f))
@@ -338,56 +388,62 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         return row
     }
 
-    private fun buildHud(land: Boolean): LinearLayout {
-        val row = ctx.hbox(false)
-        val fpsCard = ctx.vbox(12, 8)
-        fpsCard.background = GradientDrawable(
-            GradientDrawable.Orientation.TL_BR, intArrayOf(withAlpha(NX.CYAN, 0x2A), withAlpha(NX.ACCENT, 0x16))
-        ).also { it.cornerRadius = ctx.dpf(18f); it.setStroke(ctx.dp(1), withAlpha(NX.CYAN, 0x88)) }
-        fpsCard.addView(ctx.tv("FPS", 9.5f, NX.CYAN, 700).also { it.letterSpacing = 0.16f })
-        val fps = ctx.tv("--", if (land) 30f else 38f, NX.TEXT, 700)
-        fps.setShadowLayer(ctx.dpf(10f), 0f, 0f, NX.CYAN)
+    /** Blok FPS: angka besar bercahaya + grafik garis. */
+    private fun buildFps(land: Boolean): LinearLayout {
+        val box = if (land) ctx.vbox(12, 8) else ctx.hbox()
+        if (land) {
+            box.background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR, intArrayOf(withAlpha(NX.CYAN, 0x2A), withAlpha(NX.ACCENT, 0x16))
+            ).also { it.cornerRadius = ctx.dpf(18f); it.setStroke(ctx.dp(1), withAlpha(NX.CYAN, 0x88)) }
+        }
+        val num = ctx.vbox()
+        num.addView(ctx.tv("FPS", 9.5f, NX.CYAN, 700).also { it.letterSpacing = 0.18f })
+        val fps = ctx.tv("--", if (land) 30f else 42f, NX.TEXT, 700)
+        fps.setShadowLayer(ctx.dpf(12f), 0f, 0f, NX.CYAN)
         tvFps = fps
-        fpsCard.add(fps, WRAP, WRAP)
+        num.addView(fps)
         val sp = SparkView(ctx)
         spark = sp
-        fpsCard.add(sp, MATCH, 0, 1f, 0, 2, 0, 0)
-        row.add(fpsCard, 0, MATCH, 1.15f, 0, 0, 8, 0)
-
-        val grid = ctx.vbox()
-        val ping = statChip("Ping", NX.TEXT)
-        val temp = statChip("Suhu", NX.WARN)
-        val bat = statChip("Baterai", NX.GOOD)
-        val ses = statChip("Sesi", NX.TEXT2)
-        tvPing = ping.second; tvTemp = temp.second; tvBat = bat.second; tvSessionHero = ses.second
-        val r1 = ctx.hbox(false)
-        r1.add(ping.first, 0, MATCH, 1f, 0, 0, 8, 0)
-        r1.add(temp.first, 0, MATCH, 1f)
-        val r2 = ctx.hbox(false)
-        r2.add(bat.first, 0, MATCH, 1f, 0, 0, 8, 0)
-        r2.add(ses.first, 0, MATCH, 1f)
-        grid.add(r1, MATCH, 0, 1f, 0, 0, 0, 8)
-        grid.add(r2, MATCH, 0, 1f)
-        row.add(grid, 0, MATCH, 1.85f)
-        return row
+        if (land) {
+            box.add(num, WRAP, WRAP)
+            box.add(sp, MATCH, 0, 1f, 0, 2, 0, 0)
+        } else {
+            box.gravity = Gravity.CENTER
+            box.add(num, WRAP, WRAP, 0f, 0, 0, 14, 0)
+            box.add(sp, 0, MATCH, 1f, 0, 6, 0, 4)
+        }
+        return box
     }
 
-    private fun buildActions(): LinearLayout {
-        val items = listOf(
-            ArcItem(R.drawable.ic_bolt, "Boost", null) { host.boost() },
-            ArcItem(R.drawable.ic_scissors, "Cuplikan", null) { host.screenshot() },
-            ArcItem(R.drawable.ic_video, "Rekam", { host.isRecording() }) { host.toggleRecord() },
-            ArcItem(R.drawable.ic_bell, "Senyap", { Booster.dndOn(ctx) }) { host.setDnd(!Booster.dndOn(ctx)) },
-            ArcItem(R.drawable.ic_crosshair, "Bidik", { Prefs.crosshair }) { host.setCrosshair(!Prefs.crosshair) },
-            ArcItem(R.drawable.ic_hand, "Kunci tepi", { Prefs.edgeGuard }) { host.setEdgeGuard(!Prefs.edgeGuard) }
-        )
-        val row = ctx.hbox(false)
-        items.forEach { item ->
-            val v = arcButton(item)
-            quickBtns.add(v)
-            row.add(v, 0, WRAP, 1f)
+    private fun miniChip(label: String, color: Int): Pair<LinearLayout, TextView> {
+        val b = ctx.vbox(8, 3)
+        b.gravity = Gravity.CENTER
+        b.background = glass(12f)
+        val l = ctx.tv(label, 8.5f, NX.MUTED, 700).also { it.isAllCaps = true; it.letterSpacing = 0.12f }
+        val v = ctx.tv("--", 13.5f, color, 700)
+        b.add(l, WRAP, WRAP)
+        b.add(v, WRAP, WRAP)
+        return Pair(b, v)
+    }
+
+    private fun buildChips(grid: Boolean): LinearLayout {
+        val ping = miniChip("Ping", NX.TEXT)
+        val temp = miniChip("Suhu", NX.WARN)
+        val bat = miniChip("Baterai", NX.GOOD)
+        val ses = miniChip("Sesi", NX.TEXT2)
+        tvPing = ping.second; tvTemp = temp.second; tvBat = bat.second; tvSessionHero = ses.second
+        if (!grid) {
+            val row = ctx.hbox(false)
+            listOf(ping, temp, bat, ses).forEachIndexed { i, c -> row.add(c.first, 0, MATCH, 1f, 0, 0, if (i < 3) 6 else 0, 0) }
+            return row
         }
-        return row
+        val col = ctx.vbox()
+        val r1 = ctx.hbox(false)
+        r1.add(ping.first, 0, MATCH, 1f, 0, 0, 6, 0); r1.add(temp.first, 0, MATCH, 1f)
+        val r2 = ctx.hbox(false)
+        r2.add(bat.first, 0, MATCH, 1f, 0, 0, 6, 0); r2.add(ses.first, 0, MATCH, 1f)
+        col.add(r1, MATCH, 0, 1f, 0, 0, 0, 6); col.add(r2, MATCH, 0, 1f)
+        return col
     }
 
     private fun buildTabs(innerW: Int): FrameLayout {
@@ -572,11 +628,14 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
                 v.translationY = ctx.dpf(18f) * (1f - Motion.smooth(t))
             }
         }
-        // Tombol aksi cepat "pop" satu per satu.
+        // Tombol aksi cepat terbang dari pusat kubah ke posisinya di busur, satu per satu.
         quickBtns.forEachIndexed { i, b ->
-            runs += Motion.run(620, 260L + i * 55L) { t ->
+            runs += Motion.run(700, 230L + i * 55L) { t ->
                 val e = Motion.spring(t)
-                val sc = 0.6f + 0.4f * e
+                val k = 1f - e
+                b.translationX = arcFromX[i] * k
+                b.translationY = arcFromY[i] * k
+                val sc = 0.5f + 0.5f * e
                 b.scaleX = sc; b.scaleY = sc
                 b.alpha = Motion.outCubic((t * 3f).coerceAtMost(1f))
             }
@@ -877,7 +936,10 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         col.add(ctx.sectionTitle("Aplikasi saya"), t = 18, b = 10)
         val apps = host.dockApps()
         val cells = ArrayList<View>()
-        apps.forEach { (pkg, d) -> cells.add(appCell(d, GameRepo.label(ctx, pkg)) { host.launchDock(pkg) }) }
+        apps.forEach { (pkg, d) ->
+            val label = GameRepo.label(ctx, pkg)
+            cells.add(appCell(d, label, MiniWindow.siteFor(pkg, label) != null) { host.launchDock(pkg) })
+        }
         val plus = FrameLayout(ctx)
         plus.background = rounded(0, ctx.dpf(16f), withAlpha(NX.ACCENT, 0x88), ctx.dp(1))
         plus.addView(ctx.icon(R.drawable.ic_add, NX.ACCENT, 24), FrameLayout.LayoutParams(ctx.dp(24), ctx.dp(24), Gravity.CENTER))
@@ -909,7 +971,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
                 col.add(ctx.chipRow(listOf("Kecil", "Sedang", "Besar"), Prefs.floatSize) { Prefs.floatSize = it }, t = 8)
             }
         } else {
-            col.add(ctx.tv("Aplikasi asli dibuka cepat di atas game. Ketuk gelembung Nexus yang muncul untuk kembali ke game.", 11.5f, NX.MUTED), t = 14)
+            col.add(ctx.tv("Aplikasi dengan lencana biru dibuka sebagai jendela mini (versi web) di atas game. Aplikasi lain dibuka penuh dengan gelembung Nexus untuk kembali ke game. Jendela aplikasi asli yang sungguhan hanya mungkin di HP yang mendukung freeform.", 11.5f, NX.MUTED), t = 14)
         }
         col.add(View(ctx), MATCH, ctx.dp(10))
         return sv
@@ -926,16 +988,27 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         return v
     }
 
-    private fun appCell(icon: Drawable, name: String, onClick: () -> Unit): View {
+    private fun appCell(icon: Drawable, name: String, mini: Boolean = false, onClick: () -> Unit): View {
         val v = ctx.vbox()
         v.gravity = Gravity.CENTER_HORIZONTAL
         val iv = ImageView(ctx)
         iv.setImageDrawable(icon)
         iv.background = rounded(NX.SURFACE2, ctx.dpf(16f))
         iv.clipToOutline = true
-        iv.outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+        iv.outlineProvider = ViewOutlineProvider.BACKGROUND
         iv.scaleType = ImageView.ScaleType.CENTER_CROP
-        v.add(iv, ctx.dp(54), ctx.dp(54))
+        val holder = FrameLayout(ctx)
+        holder.addView(iv, FrameLayout.LayoutParams(ctx.dp(54), ctx.dp(54)))
+        if (mini) {
+            // Lencana: aplikasi ini bisa dibuka sebagai jendela mini (versi web) di HP mana pun.
+            val badge = FrameLayout(ctx)
+            badge.background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(NX.ACCENT_DEEP, NX.CYAN)).also {
+                it.shape = GradientDrawable.OVAL; it.setStroke(ctx.dp(1), Color.parseColor("#FF0A0D18"))
+            }
+            badge.addView(ctx.icon(R.drawable.ic_monitor, Color.WHITE, 11), FrameLayout.LayoutParams(ctx.dp(11), ctx.dp(11), Gravity.CENTER))
+            holder.addView(badge, FrameLayout.LayoutParams(ctx.dp(20), ctx.dp(20), Gravity.BOTTOM or Gravity.END))
+        }
+        v.add(holder, ctx.dp(54), ctx.dp(54))
         v.add(ctx.tv(name, 10.5f, NX.TEXT2, 500).also { it.gravity = Gravity.CENTER; it.maxLines = 1; it.ellipsize = android.text.TextUtils.TruncateAt.END }, MATCH, WRAP, 0f, 2, 6, 2, 0)
         v.setOnClickListener { onClick() }
         v.pressFx(0.9f)
@@ -946,14 +1019,16 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     private fun pageSaya(): View {
         val (sv, col) = scrollPage()
         val head = ctx.hbox()
-        val avatar = ctx.tv(Prefs.userName.take(1).uppercase(), 22f, Color.WHITE, 700)
-        avatar.gravity = Gravity.CENTER
-        avatar.background = gradientRounded(NX.ACCENT_DEEP, NX.CYAN, ctx.dpf(18f), GradientDrawable.Orientation.TL_BR)
-        avatar.glow(NX.ACCENT, 8f)
+        val avatar = ImageView(ctx)
+        avatar.scaleType = ImageView.ScaleType.CENTER_CROP
+        avatar.background = gradientRounded(NX.ACCENT_DEEP, NX.CYAN, ctx.dpf(26f), GradientDrawable.Orientation.TL_BR)
+        avatar.clipToOutline = true
+        avatar.outlineProvider = ViewOutlineProvider.BACKGROUND
+        com.nexus.asisten.core.Avatar.into(ctx, avatar)
         head.add(avatar, ctx.dp(52), ctx.dp(52), 0f, 0, 0, 14, 0)
         val names = ctx.vbox()
         names.addView(ctx.tv(Prefs.userName, 18f, NX.TEXT, 700))
-        names.add(ctx.tv("Sedang bermain ${host.gameName}", 12.5f, NX.TEXT2), t = 2)
+        names.add(ctx.tv(if (Prefs.googleEmail.isNotEmpty()) Prefs.googleEmail else "Sedang bermain ${host.gameName}", 12.5f, NX.TEXT2), t = 2)
         head.add(names, 0, WRAP, 1f)
         col.add(head, b = 14)
 
