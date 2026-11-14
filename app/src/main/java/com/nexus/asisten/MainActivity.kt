@@ -50,10 +50,13 @@ class MainActivity : AppCompatActivity() {
     private var selected: String? = null
     private val handler = Handler(Looper.getMainLooper())
     private val bg = Executors.newSingleThreadExecutor()
-    private var ring: PerfRingView? = null
-    private var tvBat: TextView? = null
-    private var tvTemp: TextView? = null
+    private var gBat: RingGauge? = null
+    private var gTemp: RingGauge? = null
     private var tvRam: TextView? = null
+    private var pbRam: android.widget.ProgressBar? = null
+    private var tvDisk: TextView? = null
+    private var pbDisk: android.widget.ProgressBar? = null
+    private var tvNet: TextView? = null
     private var updateShown = false
     private var ringIntro = false
 
@@ -112,25 +115,34 @@ class MainActivity : AppCompatActivity() {
     private fun updateLive() {
         val b = SystemStats.battery(this)
         val (free, total) = SystemStats.ramMb(this)
-        val g = games.firstOrNull { it.pkg == selected }
-        val mode = if (g != null) Prefs.profile(g.pkg).mode else GameProfile.MODE_BALANCED
-        val heat = (b.tempC - 25f) / 25f
+        val heat = ((b.tempC - 25f) / 25f).coerceIn(0f, 1f)
         val bat = b.pct / 100f
+        val tempColor = when { heat > 0.75f -> NX.HOT; heat > 0.5f -> NX.WARN; else -> NX.ACCENT }
+        val apply = { k: Float ->
+            gBat?.set(bat * k, "${(b.pct * k).toInt()}%", if (b.charging) "Mengisi" else "Baterai", if (bat < 0.2f) NX.HOT else NX.GOOD, NX.CYAN)
+            gTemp?.set(heat * k, String.format("%.0f°C", b.tempC), "Suhu", tempColor, NX.MAGENTA)
+        }
         if (ringIntro) {
             ringIntro = false
             ValueAnimator.ofFloat(0f, 1f).apply {
                 duration = 900
                 interpolator = DecelerateInterpolator(1.5f)
-                addUpdateListener { a ->
-                    val t = a.animatedValue as Float
-                    ring?.set(heat * t, bat * t, profileFor(mode), accentFor(mode))
-                }
+                addUpdateListener { a -> apply(a.animatedValue as Float) }
                 start()
             }
-        } else ring?.set(heat, bat, profileFor(mode), accentFor(mode))
-        tvBat?.text = "${b.pct}%" + if (b.charging) " · mengisi" else ""
-        tvTemp?.text = String.format("%.1f °C", b.tempC)
-        tvRam?.text = "$free MB bebas dari $total MB"
+        } else apply(1f)
+        val used = (total - free).coerceAtLeast(0)
+        tvRam?.text = String.format("%.1f GB / %.1f GB", used / 1024f, total / 1024f)
+        pbRam?.progress = if (total > 0) (used * 100L / total).toInt() else 0
+        try {
+            val st = android.os.StatFs(android.os.Environment.getDataDirectory().path)
+            val tot = st.blockCountLong * st.blockSizeLong
+            val fr = st.availableBytes
+            val u = (tot - fr).coerceAtLeast(0L)
+            tvDisk?.text = String.format("%.1f GB / %.0f GB", u / 1073741824f, tot / 1073741824f)
+            pbDisk?.progress = if (tot > 0) (u * 100L / tot).toInt() else 0
+        } catch (_: Exception) {}
+        tvNet?.text = SystemStats.networkType(this)
     }
 
     private fun profileFor(mode: Int) = when (mode) {
@@ -233,13 +245,27 @@ class MainActivity : AppCompatActivity() {
             val cell = FrameLayout(this)
             cell.setPadding(dp(4), dp(4), dp(4), dp(4))
             cell.background = if (on) rounded(0, dpf(24f), NX.CYAN, dp(2)) else null
-            if (on) { cell.glow(NX.CYAN, 10f); cell.scaleX = 1.06f; cell.scaleY = 1.06f }
+            if (on) cell.glow(NX.CYAN, 10f)
             cell.addView(appIcon(g.icon, 58, 18), FrameLayout.LayoutParams(dp(58), dp(58)))
             cell.setOnClickListener { selected = g.pkg; Prefs.lastGame = g.pkg; build(false); Fx.say(this, "${g.name} dipilih") }
             cell.pressFx(0.9f)
             cell.setOnLongClickListener { gameMenu(g); true }
-            row.add(cell, WRAP, WRAP, 0f, 0, 0, 10, 0)
+            val item = vbox()
+            item.gravity = Gravity.CENTER_HORIZONTAL
+            item.add(cell, WRAP, WRAP)
+            item.add(tv(g.name, 10f, if (on) NX.TEXT else NX.TEXT2, 500).also { it.maxLines = 1; it.gravity = Gravity.CENTER; it.ellipsize = android.text.TextUtils.TruncateAt.END }, dp(70), WRAP, 0f, 0, 2, 0, 0)
+            row.add(item, WRAP, WRAP, 0f, 0, 0, 8, 0)
         }
+        val more = vbox()
+        more.gravity = Gravity.CENTER_HORIZONTAL
+        val plus = FrameLayout(this)
+        plus.background = rounded(withAlpha(Color.WHITE, 0x10), dpf(18f), NX.LINE, 1)
+        plus.addView(icon(R.drawable.ic_add, NX.TEXT, 22), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+        plus.setOnClickListener { openPicker() }
+        plus.pressFx(0.9f)
+        more.add(plus, dp(58), dp(58), 0f, 4, 4, 4, 0)
+        more.add(tv("Lainnya", 10f, NX.TEXT2, 500).also { it.gravity = Gravity.CENTER }, dp(70), WRAP, 0f, 0, 2, 0, 0)
+        row.addView(more)
         hs.addView(row)
         root.add(hs, b = 6)
     }
@@ -247,44 +273,55 @@ class MainActivity : AppCompatActivity() {
     private fun buildHero() {
         val g = games.first { it.pkg == selected }
         val prof = Prefs.profile(g.pkg)
-        val hero = vbox(20, 20)
+        val hero = vbox(18, 18)
         hero.background = NeonDrawable(
-            Color.parseColor("#FF3A22C4"), Color.parseColor("#FF080A1C"), dpf(30f),
+            Color.parseColor("#FF3A22C4"), Color.parseColor("#FF080A1C"), dpf(28f),
             withAlpha(Color.WHITE, 0x66), withAlpha(NX.CYAN, 0x88), dpf(1.4f)
         )
         hero.glow(NX.ACCENT, 18f)
-        val top = hbox()
-        val ic = appIcon(g.icon, 84, 24)
+        val body = hbox()
+        val ic = appIcon(g.icon, 112, 26)
         ic.glow(NX.CYAN, 14f)
-        top.add(ic, dp(84), dp(84), 0f, 0, 0, 16, 0)
-        val info = vbox()
-        info.addView(tv(g.name, 22f, NX.TEXT, 700).also { it.maxLines = 2 })
-        val m30 = PlayStats.last30(this, listOf(g.pkg))[g.pkg] ?: 0L
-        info.add(tv("Dimainkan ${fmtDuration(m30)} dalam 30 hari terakhir", 12.5f, 0xCCEAF0FF.toInt()), t = 4)
-        top.add(info, 0, WRAP, 1f)
-        hero.addView(top)
-
+        body.add(ic, dp(112), dp(112), 0f, 0, 0, 16, 0)
+        val right = vbox()
+        right.addView(tv(g.name, 21f, NX.TEXT, 700).also { it.maxLines = 2 })
         val modeName = listOf("Hemat daya", "Seimbang", "Gamer Pro")[prof.mode]
         val chips = hbox()
-        val tag = tv(modeName, 11.5f, Color.WHITE, 700)
+        val tag = tv(modeName, 11f, Color.WHITE, 700)
         tag.isAllCaps = true
-        tag.setPadding(dp(12), dp(6), dp(12), dp(6))
-        tag.background = rounded(withAlpha(Color.WHITE, 0x26), dpf(12f), withAlpha(Color.WHITE, 0x44), 1)
+        tag.setPadding(dp(10), dp(4), dp(10), dp(4))
+        tag.background = rounded(withAlpha(NX.ACCENT, 0x88), dpf(10f), withAlpha(Color.WHITE, 0x55), 1)
         chips.addView(tag)
         if (OverlayService.running && OverlayService.currentPkg == g.pkg) {
-            val live = tv("● Asisten aktif", 11.5f, NX.GOOD, 700)
-            live.setPadding(dp(12), dp(6), dp(12), dp(6))
-            chips.add(live, WRAP, WRAP, 0f, 8, 0, 0, 0)
+            val live = tv("● Aktif", 11f, NX.GOOD, 700)
+            live.setPadding(dp(10), dp(4), dp(4), dp(4))
+            chips.addView(live)
         }
-        hero.add(chips, t = 16)
-
-        val row = hbox()
-        row.add(gradientButton("Mulai") { startGame(g.pkg) }, 0, WRAP, 1.4f, 0, 0, 10, 0)
-        row.add(ghostButton("Performa") {
+        right.add(chips, t = 6)
+        right.add(gradientButton("Mulai") { startGame(g.pkg) }, t = 12)
+        right.add(ghostButton("Performa") {
             startActivity(Intent(this, GameSettingsActivity::class.java).putExtra(GameSettingsActivity.EXTRA_PKG, g.pkg))
-        }, 0, WRAP, 1f)
-        hero.add(row, t = 18)
+        }, t = 8)
+        body.add(right, 0, WRAP, 1f)
+        hero.addView(body)
+        val m30 = PlayStats.last30(this, listOf(g.pkg))[g.pkg] ?: 0L
+        hero.add(tv("Dimainkan ${fmtDuration(m30)} dalam 30 hari terakhir", 12f, 0xCCEAF0FF.toInt()), t = 12)
         root.add(hero, b = 18)
+    }
+
+    private fun statBar(label: String, color: Int): Triple<View, TextView, android.widget.ProgressBar> {
+        val v = vbox()
+        val head = hbox()
+        head.add(tv(label, 11.5f, NX.TEXT2, 500), 0, WRAP, 1f)
+        val value = tv("--", 11f, NX.TEXT, 700)
+        head.addView(value)
+        v.addView(head)
+        val pb = android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal)
+        pb.max = 100
+        pb.progressTintList = android.content.res.ColorStateList.valueOf(color)
+        pb.progressBackgroundTintList = android.content.res.ColorStateList.valueOf(withAlpha(Color.WHITE, 0x22))
+        v.add(pb, MATCH, dp(6), 0f, 0, 6, 0, 0)
+        return Triple(v, value, pb)
     }
 
     private fun buildDeviceCard() {
@@ -292,22 +329,23 @@ class MainActivity : AppCompatActivity() {
         c.setPadding(dp(16), dp(16), dp(16), dp(16))
         c.addView(sectionTitle("Perangkat sekarang"))
         val row = hbox()
-        val r = PerfRingView(this)
-        ring = r
-        row.add(r, dp(168), dp(160), 0f, 0, 8, 0, 0)
+        val gb = RingGauge(this); gBat = gb
+        val gt = RingGauge(this); gTemp = gt
+        row.add(gb, dp(104), dp(104), 0f, 0, 10, 8, 0)
+        row.add(gt, dp(104), dp(104), 0f, 0, 10, 12, 0)
         val info = vbox()
-        val b = tv("--", 22f, NX.TEXT, 700); tvBat = b
-        info.add(tv("BATERAI", 10.5f, NX.MUTED, 700).also { it.letterSpacing = 0.12f }, t = 4)
-        info.addView(b)
-        val tp = tv("--", 22f, NX.TEXT, 700); tvTemp = tp
-        info.add(tv("SUHU", 10.5f, NX.MUTED, 700).also { it.letterSpacing = 0.12f }, t = 10)
-        info.addView(tp)
-        val rm = tv("--", 13f, NX.TEXT, 500); tvRam = rm
-        info.add(tv("MEMORI", 10.5f, NX.MUTED, 700).also { it.letterSpacing = 0.12f }, t = 10)
-        info.addView(rm)
-        row.add(info, 0, WRAP, 1f, 8, 0, 0, 0)
+        val ram = statBar("Memori", NX.ACCENT); tvRam = ram.second; pbRam = ram.third
+        val disk = statBar("Penyimpanan", NX.CYAN); tvDisk = disk.second; pbDisk = disk.third
+        info.addView(ram.first)
+        info.add(disk.first, t = 12)
+        val net = hbox()
+        net.add(tv("Jaringan", 11.5f, NX.TEXT2, 500), 0, WRAP, 1f)
+        val nv = tv("--", 11f, NX.GOOD, 700); tvNet = nv
+        net.addView(nv)
+        info.add(net, t = 12)
+        row.add(info, 0, WRAP, 1f)
         c.addView(row)
-        c.add(ghostButton("Kosongkan RAM") { cleanRam() }, t = 8)
+        c.add(ghostButton("Kosongkan RAM") { cleanRam() }, t = 12)
         root.add(c, b = 18)
     }
 
@@ -329,14 +367,14 @@ class MainActivity : AppCompatActivity() {
     private fun buildQuickGrid() {
         root.add(sectionTitle("Akses cepat"), b = 10)
         val tiles = ArrayList<View>()
-        if (Prefs.albumEnabled) tiles.add(quickTile(R.drawable.ic_photo, "Album", "Cuplikan & rekaman", NX.MAGENTA) {
+        if (Prefs.albumEnabled) tiles.add(quickTile(R.drawable.ic_photo, "Album", "Galeri & cuplikan", NX.MAGENTA) {
             startActivity(Intent(this, AlbumActivity::class.java))
         })
-        tiles.add(quickTile(R.drawable.ic_gamepad, "Kelola game", "Tambah atau hapus", NX.CYAN) { openPicker() })
-        tiles.add(quickTile(R.drawable.ic_monitor, "Aplikasi saya", "Jendela mini di atas game", NX.BLUE) {
+        tiles.add(quickTile(R.drawable.ic_gamepad, "Kelola game", "Atur game & data", NX.CYAN) { openPicker() })
+        tiles.add(quickTile(R.drawable.ic_monitor, "Aplikasi saya", "Aplikasi terinstal", NX.BLUE) {
             startActivity(Intent(this, GamePickerActivity::class.java).putExtra(GamePickerActivity.EXTRA_MODE, GamePickerActivity.MODE_DOCK))
         })
-        tiles.add(quickTile(R.drawable.ic_person, "Profil", if (Prefs.googleEmail.isNotEmpty()) Prefs.googleEmail else "Masuk dengan Google", NX.GOOD) {
+        tiles.add(quickTile(R.drawable.ic_person, "Profil", if (Prefs.googleEmail.isNotEmpty()) Prefs.googleEmail else "Pengaturan akun", NX.GOOD) {
             startActivity(Intent(this, ProfileActivity::class.java))
         })
         var i = 0

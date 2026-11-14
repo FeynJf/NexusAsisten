@@ -655,6 +655,7 @@ class OverlayService : Service(), PanelHost, RecordHost {
 
     override fun setKeepAwake(on: Boolean) {
         Prefs.keepAwake = on
+        handleView?.keepScreenOn = on
         val p = handleParams ?: return
         p.flags = if (on) p.flags or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         else p.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON.inv()
@@ -663,15 +664,28 @@ class OverlayService : Service(), PanelHost, RecordHost {
 
     override fun setFocus(on: Boolean) {
         Prefs.focusMode = on
-        if (!Perms.dnd(this)) { Prefs.focusMode = false; toast("Beri izin Jangan Ganggu dulu"); Perms.openDnd(this); return }
+        if (!Perms.dnd(this)) { Prefs.focusMode = false; askDndPermission(); return }
         setDnd(on || profile.blockCalls || profile.blockNotif)
         toast(if (on) "Mode Fokus aktif" else "Mode Fokus mati")
     }
 
     override fun setDnd(on: Boolean) {
-        if (!Perms.dnd(this)) { toast("Beri izin Jangan Ganggu dulu"); Perms.openDnd(this); return }
+        if (!Perms.dnd(this)) { askDndPermission(); return }
         bg.execute { Booster.setDnd(this, on, true) }
     }
+
+    /**
+     * Panel layar penuh menutupi layar izin. Tutup panel dulu, baru buka pengaturannya, supaya layar izin
+     * benar-benar terlihat dan bisa disentuh.
+     */
+    private fun openSettingsAfterClose(msg: String, open: () -> Unit) {
+        closePanel()
+        toast(msg)
+        handler.postDelayed({ try { open() } catch (_: Exception) {} }, 380)
+    }
+
+    private fun askDndPermission() =
+        openSettingsAfterClose("Aktifkan Nexus di 'Akses Jangan Ganggu', lalu buka panel lagi") { Perms.openDnd(this) }
 
     /** Sembunyikan pegangan sebentar supaya tidak ikut terpotret. */
     private fun hideHandleBriefly(ms: Long) {
@@ -799,7 +813,8 @@ class OverlayService : Service(), PanelHost, RecordHost {
 
     override fun sessionMs() = session
 
-    override fun requestWrite() { toast("Izinkan 'Ubah pengaturan sistem'"); Perms.openWrite(this) }
+    override fun requestWrite() =
+        openSettingsAfterClose("Izinkan 'Ubah pengaturan sistem' untuk Nexus, lalu buka panel lagi") { Perms.openWrite(this) }
 
     // ---------- Selesai ----------
     override fun onDestroy() {

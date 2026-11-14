@@ -31,10 +31,15 @@ class DomeDrawable(
     private val s: Float,       // tinggi bagian lurus di bawah busur
     private val inset: Float,   // jarak jalur tombol dari tepi
     private val corner: Float,  // radius sudut bawah
-    private val px: Float       // 1dp dalam piksel
+    private val px: Float,      // 1dp dalam piksel
+    private val hy: Float,      // tinggi baris header di atas kubah
+    private val am: Float       // jarak kubah dari tepi bingkai
 ) : Drawable() {
 
     private val path = Path()
+    private val frame = Path()
+    private val frameFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val frameEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val ring = Path()
     private val brackets = Path()
     private val rings = Path()
@@ -64,18 +69,25 @@ class DomeDrawable(
 
     init {
         val w = 2 * a
-        val h = rho + s
-        val m = px * 4f            // sisakan ruang untuk tebal bingkai & pendar
-        path.moveTo(m, h - corner)
-        path.lineTo(m, rho)
-        path.arcTo(RectF(m, m, w - m, 2 * rho - m), 180f, 180f, false)
-        path.lineTo(w - m, h - corner)
-        path.arcTo(RectF(w - m - 2 * corner, h - 2 * corner - m, w - m, h - m), 0f, 90f, false)
-        path.lineTo(m + corner, h - m)
-        path.arcTo(RectF(m, h - 2 * corner - m, m + 2 * corner, h - m), 90f, 90f, false)
+        val h = hy + rho + s
+        val cy = hy + rho
+        val fm = px * 3f
+        // Bingkai luar panel (header di atas, kubah di dalamnya).
+        frame.addRoundRect(RectF(fm, fm, w - fm, h - fm), px * 24f, px * 24f, Path.Direction.CW)
+        frameFill.shader = LinearGradient(0f, 0f, 0f, h, intArrayOf(0xF2070815.toInt(), 0xF8040510.toInt()), null, Shader.TileMode.CLAMP)
+        frameEdge.strokeWidth = px * 1.4f
+        frameEdge.shader = LinearGradient(0f, 0f, w, h, intArrayOf(NX.CYAN, NX.ACCENT, NX.MAGENTA), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+        // Kubah 180°: busur di atas, dinding lurus ke bawah.
+        path.moveTo(am, h - am - corner)
+        path.lineTo(am, cy)
+        path.arcTo(RectF(am, hy, w - am, hy + 2 * rho), 180f, 180f, false)
+        path.lineTo(w - am, h - am - corner)
+        path.arcTo(RectF(w - am - 2 * corner, h - 2 * corner - am, w - am, h - am), 0f, 90f, false)
+        path.lineTo(am + corner, h - am)
+        path.arcTo(RectF(am, h - 2 * corner - am, am + 2 * corner, h - am), 90f, 90f, false)
         path.close()
 
-        ring.arcTo(RectF(inset, inset, w - inset, 2 * rho - inset), 180f, 180f, false)
+        ring.arcTo(RectF(inset, hy + inset, w - inset, hy + 2 * rho - inset), 180f, 180f, false)
 
         // Sudut siku HUD di kiri/kanan bawah.
         val bm = px * 14f
@@ -87,25 +99,25 @@ class DomeDrawable(
         // Cincin radar halus (setengah elips) di balik HUD.
         val ra = a - inset
         val rb = rho - inset
-        for (k in floatArrayOf(0.74f, 0.50f)) rings.addArc(RectF(a - ra * k, rho - rb * k, a + ra * k, rho + rb * k), 180f, 180f)
+        for (k in floatArrayOf(0.74f, 0.50f)) rings.addArc(RectF(a - ra * k, cy - rb * k, a + ra * k, cy + rb * k), 180f, 180f)
 
         // Kaca: gelap di bawah supaya teks mudah dibaca, sedikit tembus pandang di atas supaya game tetap terlihat.
         fill.shader = LinearGradient(
             0f, 0f, w * 0.35f, h,
             intArrayOf(0xE60E1130.toInt(), 0xEE090B20.toInt(), 0xF8040510.toInt()), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP
         )
-        auroraA.shader = RadialGradient(w * 0.82f, rho * 0.55f, a * 1.05f, intArrayOf(0x4D8B5CFF, 0x00000000), null, Shader.TileMode.CLAMP)
+        auroraA.shader = RadialGradient(w * 0.82f, hy + rho * 0.55f, a * 1.05f, intArrayOf(0x4D8B5CFF, 0x00000000), null, Shader.TileMode.CLAMP)
         auroraB.shader = RadialGradient(w * 0.12f, h * 0.55f, a * 1.0f, intArrayOf(0x3022E4FF, 0x00000000), null, Shader.TileMode.CLAMP)
         auroraC.shader = RadialGradient(w * 0.55f, h * 0.98f, a * 0.9f, intArrayOf(0x28FF4FD8, 0x00000000), null, Shader.TileMode.CLAMP)
 
         ringPaint.color = 0x12FFFFFF
         ringPaint.strokeWidth = px
 
-        sheen.shader = LinearGradient(0f, 0f, 0f, rho * 0.9f, intArrayOf(0x2EFFFFFF, 0x00FFFFFF), null, Shader.TileMode.CLAMP)
+        sheen.shader = LinearGradient(0f, hy, 0f, hy + rho * 0.9f, intArrayOf(0x2EFFFFFF, 0x00FFFFFF), null, Shader.TileMode.CLAMP)
 
         // Bingkai: tiga warna mengalir (diputar pelan).
         edgeShader = SweepGradient(
-            a, rho,
+            a, cy,
             intArrayOf(NX.CYAN, NX.ACCENT, NX.MAGENTA, NX.ACCENT, NX.CYAN, NX.BLUE, NX.CYAN),
             floatArrayOf(0f, 0.18f, 0.36f, 0.54f, 0.72f, 0.88f, 1f)
         )
@@ -118,7 +130,7 @@ class DomeDrawable(
         base.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(0x00000000, NX.CYAN, NX.ACCENT, 0x00000000), floatArrayOf(0f, 0.35f, 0.65f, 1f), Shader.TileMode.CLAMP)
         base.strokeWidth = px * 2f
         runnerShader = SweepGradient(
-            a, rho,
+            a, cy,
             intArrayOf(0x00000000, 0x00000000, NX.CYAN, 0xFFFFFFFF.toInt(), NX.MAGENTA, 0x00000000, 0x00000000),
             floatArrayOf(0f, 0.56f, 0.65f, 0.70f, 0.75f, 0.86f, 1f)
         )
@@ -141,11 +153,13 @@ class DomeDrawable(
 
     override fun draw(c: Canvas) {
         val w = 2 * a
-        val h = rho + s
+        val h = hy + rho + s
+        val cy = hy + rho
         val t = timeMs / 1000f
         val breathe = 0.78f + 0.22f * sin(t * 2f * PI.toFloat() / 3.2f)
         val glowK = (0.25f + 0.75f * intro) * breathe
 
+        c.drawPath(frame, frameFill)
         c.drawPath(path, fill)
         c.save()
         c.clipPath(path)
@@ -153,23 +167,24 @@ class DomeDrawable(
         c.save(); c.translate(sin(t * 0.45f) * px * 14f, sin(t * 0.33f) * px * 8f); c.drawRect(-w * 0.2f, -h * 0.2f, w * 1.2f, h * 1.2f, auroraA); c.restore()
         c.save(); c.translate(sin(t * 0.38f + 2f) * px * 16f, sin(t * 0.5f + 1f) * px * 10f); c.drawRect(-w * 0.2f, -h * 0.2f, w * 1.2f, h * 1.2f, auroraB); c.restore()
         c.save(); c.translate(sin(t * 0.3f + 4f) * px * 12f, 0f); c.drawRect(-w * 0.2f, 0f, w * 1.2f, h * 1.3f, auroraC); c.restore()
-        c.drawRect(0f, 0f, w, h, sheen)
+        c.drawRect(0f, hy, w, h, sheen)
         c.restore()
 
         // pendar bingkai neon (empat lapis) + warna yang mengalir
-        rotM.setRotate(t * 28f, a, rho)
+        rotM.setRotate(t * 28f, a, cy)
         edgeShader.setLocalMatrix(rotM)
         edge.strokeWidth = px * 6f; edge.alpha = (36 * glowK).toInt(); c.drawPath(path, edge)
         edge.strokeWidth = px * 1.5f; edge.alpha = (170 + 85 * intro).toInt().coerceAtMost(255); c.drawPath(path, edge)
 
         // komet cahaya yang mengitari tepi
         if (loop != null) {
-            moveM.setRotate(t * 85f, a, rho)
+            moveM.setRotate(t * 85f, a, cy)
             runnerShader.setLocalMatrix(moveM)
             runner.alpha = (255 * intro).toInt()
             c.drawPath(path, runner)
         }
         c.drawPath(rings, ringPaint)
+        c.drawPath(frame, frameEdge)
         c.drawPath(ring, track)
 
         // sudut HUD, berlian puncak, garis dasar
