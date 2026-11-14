@@ -33,7 +33,9 @@ class DomeDrawable(
     private val corner: Float,  // radius sudut bawah
     private val px: Float,      // 1dp dalam piksel
     private val hy: Float,      // tinggi baris header di atas kubah
-    private val am: Float       // jarak kubah dari tepi bingkai
+    private val am: Float,      // jarak kubah dari tepi bingkai
+    private val domeX: Float,   // tepi kiri kubah di dalam bingkai
+    private val domeW: Float    // lebar kubah (portrait: selebar bingkai)
 ) : Drawable() {
 
     private val path = Path()
@@ -71,6 +73,9 @@ class DomeDrawable(
         val w = 2 * a
         val h = hy + rho + s
         val cy = hy + rho
+        val cx = domeX + domeW / 2f
+        val dl = domeX + am
+        val dr = domeX + domeW - am
         val fm = px * 3f
         // Bingkai luar panel (header di atas, kubah di dalamnya).
         frame.addRoundRect(RectF(fm, fm, w - fm, h - fm), px * 24f, px * 24f, Path.Direction.CW)
@@ -78,16 +83,16 @@ class DomeDrawable(
         frameEdge.strokeWidth = px * 1.4f
         frameEdge.shader = LinearGradient(0f, 0f, w, h, intArrayOf(NX.CYAN, NX.ACCENT, NX.MAGENTA), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
         // Kubah 180°: busur di atas, dinding lurus ke bawah.
-        path.moveTo(am, h - am - corner)
-        path.lineTo(am, cy)
-        path.arcTo(RectF(am, hy, w - am, hy + 2 * rho), 180f, 180f, false)
-        path.lineTo(w - am, h - am - corner)
-        path.arcTo(RectF(w - am - 2 * corner, h - 2 * corner - am, w - am, h - am), 0f, 90f, false)
-        path.lineTo(am + corner, h - am)
-        path.arcTo(RectF(am, h - 2 * corner - am, am + 2 * corner, h - am), 90f, 90f, false)
+        path.moveTo(dl, h - am - corner)
+        path.lineTo(dl, cy)
+        path.arcTo(RectF(dl, hy, dr, hy + 2 * rho), 180f, 180f, false)
+        path.lineTo(dr, h - am - corner)
+        path.arcTo(RectF(dr - 2 * corner, h - 2 * corner - am, dr, h - am), 0f, 90f, false)
+        path.lineTo(dl + corner, h - am)
+        path.arcTo(RectF(dl, h - 2 * corner - am, dl + 2 * corner, h - am), 90f, 90f, false)
         path.close()
 
-        ring.arcTo(RectF(inset, hy + inset, w - inset, hy + 2 * rho - inset), 180f, 180f, false)
+        ring.arcTo(RectF(domeX + inset, hy + inset, domeX + domeW - inset, hy + 2 * rho - inset), 180f, 180f, false)
 
         // Sudut siku HUD di kiri/kanan bawah.
         val bm = px * 14f
@@ -97,18 +102,18 @@ class DomeDrawable(
         brackets.moveTo(w - bm, by - bl); brackets.lineTo(w - bm, by); brackets.lineTo(w - bm - bl, by)
 
         // Cincin radar halus (setengah elips) di balik HUD.
-        val ra = a - inset
+        val ra = domeW / 2f - inset
         val rb = rho - inset
-        for (k in floatArrayOf(0.74f, 0.50f)) rings.addArc(RectF(a - ra * k, cy - rb * k, a + ra * k, cy + rb * k), 180f, 180f)
+        for (k in floatArrayOf(0.74f, 0.50f)) rings.addArc(RectF(cx - ra * k, cy - rb * k, cx + ra * k, cy + rb * k), 180f, 180f)
 
         // Kaca: gelap di bawah supaya teks mudah dibaca, sedikit tembus pandang di atas supaya game tetap terlihat.
         fill.shader = LinearGradient(
             0f, 0f, w * 0.35f, h,
             intArrayOf(0xE60E1130.toInt(), 0xEE090B20.toInt(), 0xF8040510.toInt()), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP
         )
-        auroraA.shader = RadialGradient(w * 0.82f, hy + rho * 0.55f, a * 1.05f, intArrayOf(0x4D8B5CFF, 0x00000000), null, Shader.TileMode.CLAMP)
-        auroraB.shader = RadialGradient(w * 0.12f, h * 0.55f, a * 1.0f, intArrayOf(0x3022E4FF, 0x00000000), null, Shader.TileMode.CLAMP)
-        auroraC.shader = RadialGradient(w * 0.55f, h * 0.98f, a * 0.9f, intArrayOf(0x28FF4FD8, 0x00000000), null, Shader.TileMode.CLAMP)
+        auroraA.shader = RadialGradient(domeX + domeW * 0.82f, hy + rho * 0.55f, domeW / 2f * 1.05f, intArrayOf(0x4D8B5CFF, 0x00000000), null, Shader.TileMode.CLAMP)
+        auroraB.shader = RadialGradient(domeX + domeW * 0.12f, h * 0.55f, domeW / 2f, intArrayOf(0x3022E4FF, 0x00000000), null, Shader.TileMode.CLAMP)
+        auroraC.shader = RadialGradient(domeX + domeW * 0.55f, h * 0.98f, domeW / 2f * 0.9f, intArrayOf(0x28FF4FD8, 0x00000000), null, Shader.TileMode.CLAMP)
 
         ringPaint.color = 0x12FFFFFF
         ringPaint.strokeWidth = px
@@ -117,7 +122,7 @@ class DomeDrawable(
 
         // Bingkai: tiga warna mengalir (diputar pelan).
         edgeShader = SweepGradient(
-            a, cy,
+            cx, cy,
             intArrayOf(NX.CYAN, NX.ACCENT, NX.MAGENTA, NX.ACCENT, NX.CYAN, NX.BLUE, NX.CYAN),
             floatArrayOf(0f, 0.18f, 0.36f, 0.54f, 0.72f, 0.88f, 1f)
         )
@@ -130,7 +135,7 @@ class DomeDrawable(
         base.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(0x00000000, NX.CYAN, NX.ACCENT, 0x00000000), floatArrayOf(0f, 0.35f, 0.65f, 1f), Shader.TileMode.CLAMP)
         base.strokeWidth = px * 2f
         runnerShader = SweepGradient(
-            a, cy,
+            cx, cy,
             intArrayOf(0x00000000, 0x00000000, NX.CYAN, 0xFFFFFFFF.toInt(), NX.MAGENTA, 0x00000000, 0x00000000),
             floatArrayOf(0f, 0.56f, 0.65f, 0.70f, 0.75f, 0.86f, 1f)
         )
@@ -155,6 +160,7 @@ class DomeDrawable(
         val w = 2 * a
         val h = hy + rho + s
         val cy = hy + rho
+        val cx = domeX + domeW / 2f
         val t = timeMs / 1000f
         val breathe = 0.78f + 0.22f * sin(t * 2f * PI.toFloat() / 3.2f)
         val glowK = (0.25f + 0.75f * intro) * breathe
@@ -171,14 +177,14 @@ class DomeDrawable(
         c.restore()
 
         // pendar bingkai neon (empat lapis) + warna yang mengalir
-        rotM.setRotate(t * 28f, a, cy)
+        rotM.setRotate(t * 28f, cx, cy)
         edgeShader.setLocalMatrix(rotM)
         edge.strokeWidth = px * 6f; edge.alpha = (36 * glowK).toInt(); c.drawPath(path, edge)
         edge.strokeWidth = px * 1.5f; edge.alpha = (170 + 85 * intro).toInt().coerceAtMost(255); c.drawPath(path, edge)
 
         // komet cahaya yang mengitari tepi
         if (loop != null) {
-            moveM.setRotate(t * 85f, a, cy)
+            moveM.setRotate(t * 85f, cx, cy)
             runnerShader.setLocalMatrix(moveM)
             runner.alpha = (255 * intro).toInt()
             c.drawPath(path, runner)

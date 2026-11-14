@@ -216,9 +216,11 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     // ---------- Tata letak: bingkai panel + kubah 180° (mengikuti desain Canva 1.9.1) ----------
     private var arcFromX = FloatArray(0)
     private var arcFromY = FloatArray(0)
+    private var landMode = false
 
     private fun layoutUi(w: Int, h: Int) {
         val land = w > h
+        landMode = land
         val status = if (land) 0 else ctx.statusInset()
         val bottomM = if (land) ctx.dp(6) else ctx.navInset() + ctx.dp(6)
         val hy = ctx.dp(56)          // baris header di atas kubah
@@ -226,25 +228,29 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         val fw: Int
         val total: Int
         val rho: Int
+        val domeW: Int
         if (land) {
+            // Landscape: dua panel. Kiri = kubah desain (aksi, FPS, chip, Boost). Kanan = tab + halaman.
             fw = min(w - ctx.dp(12), ctx.dp(900))
             total = h - bottomM - ctx.dp(6)
-            rho = min(ctx.dp(138), ((total - hy) * 0.40f).toInt())
+            domeW = ctx.dp(360)
+            rho = min(ctx.dp(168), total - hy - ctx.dp(150))
         } else {
             fw = w - ctx.dp(8)
             total = min(h - status - bottomM - ctx.dp(6), ctx.dp(800))
+            domeW = fw
             rho = fw / 2 - am
         }
-        val a = fw / 2
         val cy = hy + rho            // garis tengah busur
         val s = total - cy
-        val inset = am + ctx.dp(34)
+        val inset = am + ctx.dp(if (land) 28 else 34)
         val padH = ctx.dp(14)
-        val innerW = fw - 2 * padH
+        val dcx = domeW / 2           // titik tengah kubah (sumbu x)
 
         val frame = FrameLayout(ctx)
         frame.background = DomeDrawable(
-            a.toFloat(), rho.toFloat(), s.toFloat(), inset.toFloat(), ctx.dpf(22f), ctx.dpf(1f), hy.toFloat(), am.toFloat()
+            (fw / 2).toFloat(), rho.toFloat(), s.toFloat(), inset.toFloat(), ctx.dpf(22f), ctx.dpf(1f), hy.toFloat(), am.toFloat(),
+            0f, domeW.toFloat()
         ).also { sheet = it }
         frame.isClickable = true
 
@@ -261,7 +267,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
             ArcItem(R.drawable.ic_hand, "Kunci tepi", NX.GOOD, { Prefs.edgeGuard }) { host.setEdgeGuard(!Prefs.edgeGuard) },
             ArcItem(R.drawable.ic_monitor, "Jendela", NX.ACCENT, null) { if (::pager.isInitialized) pager.snapTo(2) }
         )
-        val ra = (a - inset).toFloat()
+        val ra = (domeW / 2 - inset).toFloat()
         val rb = (rho - inset).toFloat()
         val bw = ctx.dp(58)
         val bh = ctx.dp(62)
@@ -269,12 +275,12 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         arcFromY = FloatArray(items.size)
         items.forEachIndexed { i, item ->
             val th = Math.PI + Math.PI * (i + 0.5) / items.size
-            val x = a + ra * Math.cos(th).toFloat()
+            val x = dcx + ra * Math.cos(th).toFloat()
             val y = cy + rb * Math.sin(th).toFloat()
             val v = arcButton(item)
             quickBtns.add(v)
             frame.addView(v, lp(bw, bh, Gravity.TOP or Gravity.START, (x - bw / 2f).toInt(), (y - bh / 2f).toInt()))
-            arcFromX[i] = a - x
+            arcFromX[i] = dcx - x
             arcFromY[i] = cy - y
         }
 
@@ -282,40 +288,62 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
         val hudViews = ArrayList<View>()
         val chips = buildChips()
         val fps = buildFps(land)
-        if (land) {
-            val row = ctx.hbox(false)
-            row.add(fps, ctx.dp(150), MATCH, 0f, 0, 0, 10, 0)
-            row.add(chips, ctx.dp(280), ctx.dp(42))
-            frame.addView(row, lp(WRAP, ctx.dp(58), Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, cy - ctx.dp(64)))
-        } else {
-            val chipsW = min(fw - ctx.dp(56), ctx.dp(330))
-            val chipsTop = cy - ctx.dp(48)
-            val fpsTop = hy + inset + ctx.dp(30)
-            val fpsH = max(chipsTop - ctx.dp(4) - fpsTop, ctx.dp(56))
-            frame.addView(chips, lp(chipsW, ctx.dp(40), Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, chipsTop))
-            frame.addView(fps, lp(min(fw - ctx.dp(120), ctx.dp(260)), fpsH, Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, chipsTop - ctx.dp(4) - fpsH))
-        }
-        hudViews += if (land) listOf(frame.getChildAt(frame.childCount - 1)) else listOf(chips, fps)
+        val chipsW = min(domeW - ctx.dp(if (land) 36 else 56), ctx.dp(330))
+        val chipsTop = cy - ctx.dp(48)
+        val fpsTop = hy + inset + ctx.dp(30)
+        val fpsH = max(chipsTop - ctx.dp(4) - fpsTop, ctx.dp(56))
+        val fpsW = min(domeW - ctx.dp(if (land) 130 else 120), ctx.dp(260))
+        frame.addView(chips, lp(chipsW, ctx.dp(40), Gravity.TOP or Gravity.START, dcx - chipsW / 2, chipsTop))
+        frame.addView(fps, lp(fpsW, fpsH, Gravity.TOP or Gravity.START, dcx - fpsW / 2, chipsTop - ctx.dp(4) - fpsH))
+        hudViews += listOf(chips, fps)
 
-        // --- Header di atas kubah; tab dan halaman di bagian lurus bawah busur ---
+        // --- Header di atas kubah ---
         val header = buildHeader()
         frame.addView(header, lp(MATCH, ctx.dp(44), Gravity.TOP or Gravity.START, padH, ctx.dp(8), padH))
-        val pagerTop: Int
+        sections += header
+        sections += hudViews
+
         val tabs: View
+        val pagerLeft: Int
+        val pagerTop: Int
+        val pagerW: Int
+        val pagerH: Int
         if (land) {
-            tabs = buildTabs(ctx.dp(340))
-            frame.addView(tabs, lp(ctx.dp(340), ctx.dp(40), Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, cy + ctx.dp(8)))
-            pagerTop = cy + ctx.dp(56)
+            // Panel kanan: kartu kaca berisi tab dan halaman.
+            val x0 = domeW + ctx.dp(8)
+            val rw = fw - x0 - padH
+            val paneH = total - hy - ctx.dp(14)
+            val pane = View(ctx)
+            pane.background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(withAlpha(Color.WHITE, 0x14), withAlpha(Color.WHITE, 0x06))
+            ).also { it.cornerRadius = ctx.dpf(20f); it.setStroke(ctx.dp(1), withAlpha(NX.CYAN, 0x44)) }
+            frame.addView(pane, lp(rw, paneH, Gravity.TOP or Gravity.START, x0, hy))
+            sections += pane
+            pagerLeft = x0 + ctx.dp(6)
+            pagerW = rw - ctx.dp(12)
+            tabs = buildTabs(pagerW)
+            frame.addView(tabs, lp(pagerW, ctx.dp(40), Gravity.TOP or Gravity.START, pagerLeft, hy + ctx.dp(8)))
+            pagerTop = hy + ctx.dp(54)
+            pagerH = (hy + paneH - ctx.dp(6) - pagerTop).coerceAtLeast(ctx.dp(110))
+
+            // Tombol Boost besar di bawah kubah (sama dengan desain Canva), jadi halaman Performa tidak mengulangnya.
+            val boost = ctx.gradientButton("Boost sekarang") { host.boost() }
+            frame.addView(boost, lp(domeW - ctx.dp(36), ctx.dp(46), Gravity.TOP or Gravity.START, ctx.dp(18), cy + ctx.dp(14)))
+            val hint = ctx.tv("Kosongkan RAM, kunci Wi-Fi & refresh rate, lalu uji jaringan.", 11f, NX.MUTED)
+            hint.gravity = Gravity.CENTER
+            frame.addView(hint, lp(domeW - ctx.dp(36), WRAP, Gravity.TOP or Gravity.START, ctx.dp(18), cy + ctx.dp(66)))
+            sections += boost
+            sections += hint
         } else {
-            tabs = buildTabs(innerW)
+            tabs = buildTabs(fw - 2 * padH)
+            pagerLeft = padH
+            pagerW = fw - 2 * padH
             frame.addView(tabs, lp(MATCH, ctx.dp(40), Gravity.TOP or Gravity.START, padH, cy + ctx.dp(10), padH))
             pagerTop = cy + ctx.dp(58)
+            pagerH = (total - pagerTop - ctx.dp(14)).coerceAtLeast(ctx.dp(110))
         }
-        sections += header
         sections += tabs
-        sections += hudViews
-        val pagerH = (total - pagerTop - ctx.dp(14)).coerceAtLeast(ctx.dp(110))
-        frame.addView(buildPager(innerW), lp(innerW, pagerH, Gravity.TOP or Gravity.START, padH, pagerTop))
+        frame.addView(buildPager(pagerW), lp(pagerW, pagerH, Gravity.TOP or Gravity.START, pagerLeft, pagerTop))
         attachDrag(header)
 
         // Zona seret di puncak panel.
@@ -721,9 +749,11 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
     private fun pagePerforma(): View {
         val (sv, col) = scrollPage()
         val p = host.profile()
-        col.add(ctx.gradientButton("Boost sekarang") { host.boost() }, t = 4)
-        col.add(ctx.tv("Kosongkan RAM, kunci Wi-Fi & refresh rate, lalu uji jaringan.", 11.5f, NX.MUTED), t = 6)
-        col.add(ctx.sectionTitle("Mode performa"), t = 16, b = 8)
+        if (!landMode) {
+            col.add(ctx.gradientButton("Boost sekarang") { host.boost() }, t = 4)
+            col.add(ctx.tv("Kosongkan RAM, kunci Wi-Fi & refresh rate, lalu uji jaringan.", 11.5f, NX.MUTED), t = 6)
+        }
+        col.add(ctx.sectionTitle("Mode performa"), t = if (landMode) 4 else 16, b = 8)
         val modeNames = listOf("Hemat daya", "Seimbang", "Gamer Pro")
         col.add(ctx.chipRow(modeNames, p.mode, listOf(NX.GOOD, NX.CYAN, NX.PRO)) {
             host.updateProfile(host.profile().copy(mode = it))
