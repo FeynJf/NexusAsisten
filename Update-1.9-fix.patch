@@ -1,0 +1,1639 @@
+diff --git a/app/build.gradle b/app/build.gradle
+index ecf4a29..57385e2 100644
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -25,7 +25,7 @@ android {
+         minSdk 29
+         targetSdk 33
+         versionCode 100 + runNumber
+-        versionName "1.8"
++        versionName "1.9.1"
+         buildConfigField "int", "BUILD_NUMBER", "${runNumber}"
+         buildConfigField "String", "UPDATE_REPO", "\"FeynJf/NexusAsisten\""
+     }
+@@ -69,4 +69,6 @@ dependencies {
+     implementation 'androidx.appcompat:appcompat:1.6.1'
+     implementation 'com.google.android.material:material:1.9.0'
+     implementation 'androidx.recyclerview:recyclerview:1.3.1'
++    // Masuk dengan Google (profil)
++    implementation 'com.google.android.gms:play-services-auth:20.7.0'
+ }
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 4b0ea7b..75add44 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -48,6 +48,7 @@
+         <activity android:name=".GamePickerActivity" android:exported="false" />
+         <activity android:name=".AlbumActivity" android:exported="false" />
+         <activity android:name=".SettingsActivity" android:exported="false" />
++        <activity android:name=".ProfileActivity" android:exported="false" />
+ 
+         <activity
+             android:name=".core.CaptureActivity"
+diff --git a/app/src/main/java/com/nexus/asisten/MainActivity.kt b/app/src/main/java/com/nexus/asisten/MainActivity.kt
+index d338423..a1d5022 100644
+--- a/app/src/main/java/com/nexus/asisten/MainActivity.kt
++++ b/app/src/main/java/com/nexus/asisten/MainActivity.kt
+@@ -34,6 +34,7 @@ import com.nexus.asisten.data.PlayStats
+ import com.nexus.asisten.data.Prefs
+ import com.nexus.asisten.overlay.OverlayService
+ import com.nexus.asisten.ui.*
++import com.nexus.asisten.core.Avatar
+ import java.util.concurrent.Executors
+ 
+ class MainActivity : AppCompatActivity() {
+@@ -180,6 +181,19 @@ class MainActivity : AppCompatActivity() {
+         t.addView(tv("NEXUS", 26f, NX.TEXT, 700).also { it.letterSpacing = 0.26f })
+         t.add(tv("Halo, ${Prefs.userName}", 12.5f, NX.TEXT2), t = 0)
+         bar.add(t, 0, WRAP, 1f)
++        val av = FrameLayout(this)
++        av.background = rounded(0, dpf(22f), withAlpha(NX.CYAN, 0xAA), dp(2))
++        av.setPadding(dp(3), dp(3), dp(3), dp(3))
++        val avIv = android.widget.ImageView(this)
++        avIv.scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
++        avIv.background = circle(NX.SURFACE2)
++        avIv.clipToOutline = true
++        avIv.outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
++        Avatar.into(this, avIv)
++        av.addView(avIv, FrameLayout.LayoutParams(MATCH, MATCH))
++        av.setOnClickListener { startActivity(Intent(this, ProfileActivity::class.java)) }
++        av.pressFx(0.9f)
++        bar.add(av, dp(44), dp(44), 0f, 0, 0, 10, 0)
+         val set = FrameLayout(this)
+         val r = dpf(15f)
+         set.rippleBg(rounded(withAlpha(Color.WHITE, 0x10), r, NX.LINE, 1), r)
+@@ -234,15 +248,15 @@ class MainActivity : AppCompatActivity() {
+         val g = games.first { it.pkg == selected }
+         val prof = Prefs.profile(g.pkg)
+         val hero = vbox(20, 20)
+-        hero.background = GradientDrawable(
+-            GradientDrawable.Orientation.TL_BR,
+-            intArrayOf(Color.parseColor("#5B34F5"), Color.parseColor("#2A1A7A"), Color.parseColor("#120F36"), Color.parseColor("#06070F"))
+-        ).also { it.cornerRadius = dpf(30f); it.setStroke(dp(1), withAlpha(NX.CYAN, 0x66)) }
++        hero.background = NeonDrawable(
++            Color.parseColor("#FF3A22C4"), Color.parseColor("#FF080A1C"), dpf(30f),
++            withAlpha(Color.WHITE, 0x66), withAlpha(NX.CYAN, 0x88), dpf(1.4f)
++        )
+         hero.glow(NX.ACCENT, 18f)
+         val top = hbox()
+-        val ic = appIcon(g.icon, 76, 22)
+-        ic.glow(NX.CYAN, 12f)
+-        top.add(ic, dp(76), dp(76), 0f, 0, 0, 16, 0)
++        val ic = appIcon(g.icon, 84, 24)
++        ic.glow(NX.CYAN, 14f)
++        top.add(ic, dp(84), dp(84), 0f, 0, 0, 16, 0)
+         val info = vbox()
+         info.addView(tv(g.name, 22f, NX.TEXT, 700).also { it.maxLines = 2 })
+         val m30 = PlayStats.last30(this, listOf(g.pkg))[g.pkg] ?: 0L
+@@ -297,13 +311,13 @@ class MainActivity : AppCompatActivity() {
+         root.add(c, b = 18)
+     }
+ 
+-    private fun quickTile(iconRes: Int, title: String, sub: String, onClick: () -> Unit): View {
++    private fun quickTile(iconRes: Int, title: String, sub: String, accent: Int = NX.ACCENT, onClick: () -> Unit): View {
+         val v = vbox(14, 14)
+-        v.background = NeonDrawable(Color.parseColor("#F0111729"), Color.parseColor("#F00A0D17"), dpf(22f), strokePx = dpf(1.2f))
++        v.background = NeonDrawable(Color.parseColor("#E6141A33"), Color.parseColor("#EE090B18"), dpf(22f), strokePx = dpf(1.2f))
+         val badge = FrameLayout(this)
+-        badge.background = gradientRounded(withAlpha(NX.ACCENT, 0x55), withAlpha(NX.BLUE, 0x33), dpf(14f), GradientDrawable.Orientation.TL_BR)
+-            .also { it.setStroke(1, withAlpha(NX.ACCENT, 0x88)) }
+-        badge.addView(icon(iconRes, NX.CYAN, 22), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
++        badge.background = gradientRounded(withAlpha(accent, 0x66), withAlpha(accent, 0x1E), dpf(14f), GradientDrawable.Orientation.TL_BR)
++            .also { it.setStroke(1, withAlpha(accent, 0xAA)) }
++        badge.addView(icon(iconRes, Color.WHITE, 22), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+         v.add(badge, dp(42), dp(42))
+         v.add(tv(title, 15f, NX.TEXT, 700), t = 12)
+         v.add(tv(sub, 11.5f, NX.TEXT2).also { it.maxLines = 2 }, t = 2)
+@@ -315,14 +329,16 @@ class MainActivity : AppCompatActivity() {
+     private fun buildQuickGrid() {
+         root.add(sectionTitle("Akses cepat"), b = 10)
+         val tiles = ArrayList<View>()
+-        if (Prefs.albumEnabled) tiles.add(quickTile(R.drawable.ic_photo, "Album", "Cuplikan & rekaman") {
++        if (Prefs.albumEnabled) tiles.add(quickTile(R.drawable.ic_photo, "Album", "Cuplikan & rekaman", NX.MAGENTA) {
+             startActivity(Intent(this, AlbumActivity::class.java))
+         })
+-        tiles.add(quickTile(R.drawable.ic_gamepad, "Kelola game", "Tambah atau hapus") { openPicker() })
+-        tiles.add(quickTile(R.drawable.ic_monitor, "Aplikasi overlay", "Dibuka jendela mengambang") {
++        tiles.add(quickTile(R.drawable.ic_gamepad, "Kelola game", "Tambah atau hapus", NX.CYAN) { openPicker() })
++        tiles.add(quickTile(R.drawable.ic_monitor, "Aplikasi saya", "Jendela mini di atas game", NX.BLUE) {
+             startActivity(Intent(this, GamePickerActivity::class.java).putExtra(GamePickerActivity.EXTRA_MODE, GamePickerActivity.MODE_DOCK))
+         })
+-        tiles.add(quickTile(R.drawable.ic_person, "Profil", Prefs.userName) { renameDialog() })
++        tiles.add(quickTile(R.drawable.ic_person, "Profil", if (Prefs.googleEmail.isNotEmpty()) Prefs.googleEmail else "Masuk dengan Google", NX.GOOD) {
++            startActivity(Intent(this, ProfileActivity::class.java))
++        })
+         var i = 0
+         while (i < tiles.size) {
+             val row = hbox(false)
+diff --git a/app/src/main/java/com/nexus/asisten/ProfileActivity.kt b/app/src/main/java/com/nexus/asisten/ProfileActivity.kt
+new file mode 100644
+index 0000000..d98971e
+--- /dev/null
++++ b/app/src/main/java/com/nexus/asisten/ProfileActivity.kt
+@@ -0,0 +1,228 @@
++package com.nexus.asisten
++
++import android.content.ClipData
++import android.content.ClipboardManager
++import android.content.Context
++import android.content.Intent
++import android.content.pm.PackageManager
++import android.graphics.Color
++import android.os.Bundle
++import android.text.SpannableString
++import android.text.Spanned
++import android.text.style.ForegroundColorSpan
++import android.view.Gravity
++import android.view.ViewOutlineProvider
++import android.widget.EditText
++import android.widget.FrameLayout
++import android.widget.ImageView
++import android.widget.LinearLayout
++import android.widget.ScrollView
++import android.widget.TextView
++import androidx.appcompat.app.AlertDialog
++import androidx.appcompat.app.AppCompatActivity
++import com.google.android.gms.auth.api.signin.GoogleSignIn
++import com.google.android.gms.auth.api.signin.GoogleSignInOptions
++import com.google.android.gms.common.api.ApiException
++import com.nexus.asisten.core.Avatar
++import com.nexus.asisten.data.Prefs
++import com.nexus.asisten.ui.*
++import java.security.MessageDigest
++
++/** Profil: masuk/keluar akun Google (Gmail), nama tampilan, dan foto profil. */
++class ProfileActivity : AppCompatActivity() {
++
++    private companion object { const val RC_SIGN_IN = 4201 }
++
++    private lateinit var root: LinearLayout
++
++    private fun client() = GoogleSignIn.getClient(
++        this,
++        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestEmail().requestProfile().build()
++    )
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        Prefs.init(this)
++        val scroll = ScrollView(this)
++        scroll.background = screenBg()
++        scroll.isVerticalScrollBarEnabled = false
++        root = vbox(18, 12)
++        scroll.addView(root)
++        setContentView(scroll)
++        build()
++    }
++
++    private fun build() {
++        root.removeAllViews()
++        val bar = hbox()
++        val back = FrameLayout(this)
++        val r = dpf(15f)
++        back.rippleBg(rounded(withAlpha(Color.WHITE, 0x10), r, NX.LINE, 1), r)
++        back.addView(icon(R.drawable.ic_back, NX.TEXT, 22), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
++        back.setOnClickListener { finish() }
++        bar.add(back, dp(44), dp(44), 0f, 0, 0, 14, 0)
++        bar.add(tv("PROFIL", 22f, NX.TEXT, 700).also { it.letterSpacing = 0.2f }, 0, WRAP, 1f)
++        root.add(bar, b = 18)
++
++        val logged = Prefs.googleEmail.isNotEmpty()
++        val c = vbox(20, 24)
++        c.gravity = Gravity.CENTER_HORIZONTAL
++        c.background = NeonDrawable(
++            Color.parseColor("#FF2A1A8C"), Color.parseColor("#FF080A1C"), dpf(30f),
++            withAlpha(Color.WHITE, 0x66), withAlpha(NX.CYAN, 0x88), dpf(1.4f)
++        )
++        val ring = FrameLayout(this)
++        ring.setPadding(dp(4), dp(4), dp(4), dp(4))
++        ring.background = rounded(0, dpf(56f), withAlpha(NX.CYAN, 0xCC), dp(2))
++        ring.glow(NX.CYAN, 14f)
++        val iv = ImageView(this)
++        iv.scaleType = ImageView.ScaleType.CENTER_CROP
++        iv.background = circle(NX.SURFACE2)
++        iv.clipToOutline = true
++        iv.outlineProvider = ViewOutlineProvider.BACKGROUND
++        Avatar.into(this, iv)
++        ring.addView(iv, FrameLayout.LayoutParams(MATCH, MATCH))
++        c.add(ring, dp(104), dp(104))
++        c.add(tv(Prefs.userName, 24f, NX.TEXT, 700).also { it.gravity = Gravity.CENTER }, WRAP, WRAP, 0f, 0, 14, 0, 0)
++        c.add(
++            tv(if (logged) Prefs.googleEmail else "Belum masuk", 13.5f, if (logged) NX.TEXT2 else NX.MUTED).also { it.gravity = Gravity.CENTER },
++            WRAP, WRAP, 0f, 0, 2, 0, 0
++        )
++        val chip = tv(if (logged) "● Terhubung dengan Google" else "● Mode tamu", 11.5f, if (logged) NX.GOOD else NX.WARN, 700)
++        chip.setPadding(dp(12), dp(6), dp(12), dp(6))
++        chip.background = rounded(withAlpha(if (logged) NX.GOOD else NX.WARN, 0x1E), dpf(12f), withAlpha(if (logged) NX.GOOD else NX.WARN, 0x66), 1)
++        c.add(chip, WRAP, WRAP, 0f, 0, 14, 0, 0)
++        root.add(c, b = 18)
++
++        if (!logged) {
++            val g = card(24)
++            g.setPadding(dp(18), dp(18), dp(18), dp(18))
++            g.addView(sectionTitle("Akun Google"))
++            g.add(tv("Masuk dengan Gmail untuk menyimpan nama dan foto profil Anda di Nexus.", 13f, NX.TEXT2), t = 8, b = 16)
++            g.addView(googleButton())
++            root.add(g, b = 16)
++        } else {
++            val g = card(24)
++            g.setPadding(dp(18), dp(18), dp(18), dp(18))
++            g.addView(sectionTitle("Akun Google"))
++            g.add(tv("Anda masuk sebagai ${Prefs.googleName.ifEmpty { Prefs.userName }}.", 13f, NX.TEXT2), t = 8, b = 14)
++            g.addView(ghostButton("Keluar dari akun") { signOut() })
++            root.add(g, b = 16)
++        }
++
++        val n = card(24)
++        n.setPadding(dp(18), dp(16), dp(18), dp(16))
++        n.addView(sectionTitle("Nama tampilan"))
++        val row = hbox()
++        row.add(tv(Prefs.userName, 17f, NX.TEXT, 700), 0, WRAP, 1f)
++        row.addView(tv("UBAH", 12f, NX.ACCENT, 700))
++        row.pressFx(0.97f)
++        row.setOnClickListener { renameDialog() }
++        n.add(row, t = 10)
++        root.add(n)
++        root.add(android.view.View(this), MATCH, dp(28))
++    }
++
++    private fun googleButton(): TextView {
++        val label = SpannableString("G  Masuk dengan Google")
++        label.setSpan(ForegroundColorSpan(Color.parseColor("#4285F4")), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
++        label.setSpan(ForegroundColorSpan(Color.parseColor("#1B1F33")), 1, label.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
++        val b = tv("", 15f, Color.parseColor("#1B1F33"), 700)
++        b.text = label
++        b.gravity = Gravity.CENTER
++        b.setPadding(dp(16), dp(15), dp(16), dp(15))
++        b.background = rounded(Color.WHITE, dpf(18f))
++        b.glow(NX.ACCENT, 10f)
++        b.pressFx(0.96f)
++        b.setOnClickListener { signIn() }
++        return b
++    }
++
++    private fun signIn() {
++        try {
++            @Suppress("DEPRECATION")
++            startActivityForResult(client().signInIntent, RC_SIGN_IN)
++        } catch (e: Throwable) {
++            Fx.say(this, "Layanan Google tidak tersedia di HP ini", Fx.WARN)
++        }
++    }
++
++    private fun signOut() {
++        client().signOut().addOnCompleteListener {
++            Prefs.googleEmail = ""; Prefs.googleName = ""; Prefs.googlePhoto = ""
++            Avatar.clear(this)
++            Fx.say(this, "Sudah keluar")
++            build()
++        }
++    }
++
++    @Deprecated("Deprecated in Java")
++    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
++        @Suppress("DEPRECATION")
++        super.onActivityResult(requestCode, resultCode, data)
++        if (requestCode != RC_SIGN_IN) return
++        try {
++            val acct = GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException::class.java)
++            Prefs.googleEmail = acct.email ?: ""
++            Prefs.googleName = acct.displayName ?: ""
++            Prefs.googlePhoto = acct.photoUrl?.toString() ?: ""
++            val first = (acct.givenName ?: acct.displayName ?: "").trim()
++            if (first.isNotEmpty()) Prefs.userName = first
++            Fx.say(this, "Berhasil masuk", Fx.OK)
++            build()
++            if (Prefs.googlePhoto.isNotEmpty()) Avatar.fetch(this, Prefs.googlePhoto) { if (!isFinishing) build() }
++        } catch (e: ApiException) {
++            when (e.statusCode) {
++                12501 -> Fx.say(this, "Masuk dibatalkan")
++                7 -> Fx.say(this, "Tidak ada koneksi internet", Fx.WARN)
++                else -> setupDialog(e.statusCode)
++            }
++        } catch (e: Throwable) {
++            Fx.say(this, "Gagal masuk: ${e.message ?: "-"}", Fx.WARN)
++        }
++    }
++
++    private fun sha1(): String = try {
++        val pi = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
++        val sig = pi.signingInfo.apkContentsSigners[0]
++        MessageDigest.getInstance("SHA-1").digest(sig.toByteArray()).joinToString(":") { "%02X".format(it) }
++    } catch (e: Throwable) { "-" }
++
++    /** Kode 10/12500 hampir selalu berarti OAuth Client Android belum didaftarkan: tampilkan data yang dibutuhkan. */
++    private fun setupDialog(code: Int) {
++        val sha = sha1()
++        AlertDialog.Builder(this)
++            .setTitle("Login Google belum siap (kode $code)")
++            .setMessage(
++                "Daftarkan aplikasi ini di Google Cloud Console (APIs & Services > Credentials > OAuth client ID > Android):\n\n" +
++                    "Package: $packageName\nSHA-1: $sha\n\n" +
++                    "Lalu isi OAuth consent screen dan tambahkan email Anda sebagai Test user."
++            )
++            .setPositiveButton("Salin SHA-1") { _, _ ->
++                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
++                cm.setPrimaryClip(ClipData.newPlainText("sha1", sha))
++                Fx.say(this, "SHA-1 disalin", Fx.OK)
++            }
++            .setNegativeButton("Tutup", null)
++            .show()
++    }
++
++    private fun renameDialog() {
++        val et = EditText(this)
++        et.setText(Prefs.userName)
++        et.setTextColor(NX.TEXT)
++        et.setSingleLine()
++        val box = FrameLayout(this)
++        box.setPadding(dp(20), dp(8), dp(20), 0)
++        box.addView(et)
++        AlertDialog.Builder(this)
++            .setTitle("Nama tampilan")
++            .setView(box)
++            .setPositiveButton("Simpan") { _, _ ->
++                val n = et.text.toString().trim()
++                if (n.isNotEmpty()) { Prefs.userName = n; build() }
++            }
++            .setNegativeButton("Batal", null)
++            .show()
++    }
++}
+diff --git a/app/src/main/java/com/nexus/asisten/core/Avatar.kt b/app/src/main/java/com/nexus/asisten/core/Avatar.kt
+new file mode 100644
+index 0000000..5ed7978
+--- /dev/null
++++ b/app/src/main/java/com/nexus/asisten/core/Avatar.kt
+@@ -0,0 +1,51 @@
++package com.nexus.asisten.core
++
++import android.content.Context
++import android.graphics.Bitmap
++import android.graphics.BitmapFactory
++import android.os.Handler
++import android.os.Looper
++import android.widget.ImageView
++import com.nexus.asisten.R
++import com.nexus.asisten.ui.NX
++import java.io.File
++import java.io.FileOutputStream
++import java.net.URL
++import java.util.concurrent.Executors
++
++/** Foto profil Google: diunduh sekali saat masuk, disimpan di filesDir, lalu dipakai di seluruh aplikasi. */
++object Avatar {
++    private val ex = Executors.newSingleThreadExecutor()
++    private val main = Handler(Looper.getMainLooper())
++    private fun file(ctx: Context) = File(ctx.filesDir, "avatar.png")
++
++    fun into(ctx: Context, iv: ImageView) {
++        val f = file(ctx)
++        val bmp = if (f.exists()) try { BitmapFactory.decodeFile(f.path) } catch (_: Throwable) { null } else null
++        if (bmp != null) {
++            iv.clearColorFilter(); iv.setPadding(0, 0, 0, 0)
++            iv.setImageBitmap(bmp)
++        } else {
++            val p = (10 * ctx.resources.displayMetrics.density).toInt()
++            iv.setPadding(p, p, p, p)
++            iv.setImageResource(R.drawable.ic_person)
++            iv.setColorFilter(NX.CYAN)
++        }
++    }
++
++    fun fetch(ctx: Context, url: String, done: () -> Unit) {
++        val app = ctx.applicationContext
++        ex.execute {
++            try {
++                val conn = URL(url).openConnection()
++                conn.connectTimeout = 8000
++                conn.readTimeout = 8000
++                val bmp = conn.getInputStream().use { BitmapFactory.decodeStream(it) }
++                if (bmp != null) FileOutputStream(file(app)).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
++            } catch (_: Throwable) {}
++            main.post { done() }
++        }
++    }
++
++    fun clear(ctx: Context) { file(ctx).delete() }
++}
+diff --git a/app/src/main/java/com/nexus/asisten/data/Prefs.kt b/app/src/main/java/com/nexus/asisten/data/Prefs.kt
+index ffc008b..96a0958 100644
+--- a/app/src/main/java/com/nexus/asisten/data/Prefs.kt
++++ b/app/src/main/java/com/nexus/asisten/data/Prefs.kt
+@@ -26,6 +26,17 @@ object Prefs {
+         get() = s.getString("user", "Gamer") ?: "Gamer"
+         set(v) = s.edit().putString("user", v).apply()
+ 
++    // Akun Google (profil)
++    var googleEmail: String
++        get() = s.getString("g_email", "") ?: ""
++        set(v) = s.edit().putString("g_email", v).apply()
++    var googleName: String
++        get() = s.getString("g_name", "") ?: ""
++        set(v) = s.edit().putString("g_name", v).apply()
++    var googlePhoto: String
++        get() = s.getString("g_photo", "") ?: ""
++        set(v) = s.edit().putString("g_photo", v).apply()
++
+     // Pengaturan umum
+     var openAnimation: Boolean get() = b("open_anim", true); set(v) = putB("open_anim", v)
+     var panelBlur: Boolean get() = b("panel_blur", true); set(v) = putB("panel_blur", v)
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/DomeDrawable.kt b/app/src/main/java/com/nexus/asisten/overlay/DomeDrawable.kt
+new file mode 100644
+index 0000000..b9f56d8
+--- /dev/null
++++ b/app/src/main/java/com/nexus/asisten/overlay/DomeDrawable.kt
+@@ -0,0 +1,186 @@
++package com.nexus.asisten.overlay
++
++import android.graphics.Bitmap
++import android.graphics.BitmapShader
++import android.graphics.Canvas
++import android.graphics.ColorFilter
++import android.graphics.DashPathEffect
++import android.graphics.LinearGradient
++import android.graphics.Matrix
++import android.graphics.Paint
++import android.graphics.Path
++import android.graphics.PixelFormat
++import android.graphics.RadialGradient
++import android.graphics.RectF
++import android.graphics.Shader
++import android.graphics.SweepGradient
++import android.graphics.drawable.Drawable
++import com.nexus.asisten.ui.Motion
++import com.nexus.asisten.ui.NX
++import kotlin.math.PI
++import kotlin.math.sin
++
++/**
++ * Latar panel 1.9.1 "Obsidian Aurora": kubah 180° layar penuh. Kaca obsidian hampir hitam, aurora lembut,
++ * cincin radar halus di balik HUD, jalur titik-titik tempat tombol aksi berjajar, bingkai gradien tipis dengan
++ * pendar, dan komet cahaya yang mengitari tepi. Sengaja lebih bersih dari versi 1.8 (tanpa pola diagonal/berlian).
++ */
++class DomeDrawable(
++    private val a: Float,       // setengah lebar
++    private val rho: Float,     // jari-jari vertikal busur
++    private val s: Float,       // tinggi bagian lurus di bawah busur
++    private val inset: Float,   // jarak jalur tombol dari tepi
++    private val corner: Float,  // radius sudut bawah
++    private val px: Float       // 1dp dalam piksel
++) : Drawable() {
++
++    private val path = Path()
++    private val ring = Path()
++    private val brackets = Path()
++    private val rings = Path()
++    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val auroraA = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val auroraB = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val auroraC = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val sheen = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeJoin = Paint.Join.ROUND }
++    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
++    private val base = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
++    private val runner = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
++    private val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
++    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
++
++    private val edgeShader: SweepGradient
++    private val runnerShader: SweepGradient
++    private val rotM = Matrix()
++    private val moveM = Matrix()
++
++    private var timeMs = 0L
++    private var loop: Motion.Loop? = null
++
++    /** 0..1: "menyala" saat panel dibuka (kilau bingkai naik dari redup ke terang). */
++    var intro = 1f
++        set(v) { field = v.coerceIn(0f, 1f); invalidateSelf() }
++
++    init {
++        val w = 2 * a
++        val h = rho + s
++        val m = px * 4f            // sisakan ruang untuk tebal bingkai & pendar
++        path.moveTo(m, h - corner)
++        path.lineTo(m, rho)
++        path.arcTo(RectF(m, m, w - m, 2 * rho - m), 180f, 180f, false)
++        path.lineTo(w - m, h - corner)
++        path.arcTo(RectF(w - m - 2 * corner, h - 2 * corner - m, w - m, h - m), 0f, 90f, false)
++        path.lineTo(m + corner, h - m)
++        path.arcTo(RectF(m, h - 2 * corner - m, m + 2 * corner, h - m), 90f, 90f, false)
++        path.close()
++
++        ring.arcTo(RectF(inset, inset, w - inset, 2 * rho - inset), 180f, 180f, false)
++
++        // Sudut siku HUD di kiri/kanan bawah.
++        val bm = px * 14f
++        val bl = px * 22f
++        val by = h - px * 14f
++        brackets.moveTo(bm, by - bl); brackets.lineTo(bm, by); brackets.lineTo(bm + bl, by)
++        brackets.moveTo(w - bm, by - bl); brackets.lineTo(w - bm, by); brackets.lineTo(w - bm - bl, by)
++
++        // Cincin radar halus (setengah elips) di balik HUD.
++        val ra = a - inset
++        val rb = rho - inset
++        for (k in floatArrayOf(0.74f, 0.50f)) rings.addArc(RectF(a - ra * k, rho - rb * k, a + ra * k, rho + rb * k), 180f, 180f)
++
++        // Kaca: gelap di bawah supaya teks mudah dibaca, sedikit tembus pandang di atas supaya game tetap terlihat.
++        fill.shader = LinearGradient(
++            0f, 0f, w * 0.35f, h,
++            intArrayOf(0xE60E1130.toInt(), 0xEE090B20.toInt(), 0xF8040510.toInt()), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP
++        )
++        auroraA.shader = RadialGradient(w * 0.82f, rho * 0.55f, a * 1.05f, intArrayOf(0x4D8B5CFF, 0x00000000), null, Shader.TileMode.CLAMP)
++        auroraB.shader = RadialGradient(w * 0.12f, h * 0.55f, a * 1.0f, intArrayOf(0x3022E4FF, 0x00000000), null, Shader.TileMode.CLAMP)
++        auroraC.shader = RadialGradient(w * 0.55f, h * 0.98f, a * 0.9f, intArrayOf(0x28FF4FD8, 0x00000000), null, Shader.TileMode.CLAMP)
++
++        ringPaint.color = 0x12FFFFFF
++        ringPaint.strokeWidth = px
++
++        sheen.shader = LinearGradient(0f, 0f, 0f, rho * 0.9f, intArrayOf(0x2EFFFFFF, 0x00FFFFFF), null, Shader.TileMode.CLAMP)
++
++        // Bingkai: tiga warna mengalir (diputar pelan).
++        edgeShader = SweepGradient(
++            a, rho,
++            intArrayOf(NX.CYAN, NX.ACCENT, NX.MAGENTA, NX.ACCENT, NX.CYAN, NX.BLUE, NX.CYAN),
++            floatArrayOf(0f, 0.18f, 0.36f, 0.54f, 0.72f, 0.88f, 1f)
++        )
++        edge.shader = edgeShader
++
++        track.color = 0x55FFFFFF
++        track.strokeWidth = px * 2f
++        track.strokeCap = Paint.Cap.ROUND
++        track.pathEffect = DashPathEffect(floatArrayOf(px * 1.6f, px * 8f), 0f)
++        base.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(0x00000000, NX.CYAN, NX.ACCENT, 0x00000000), floatArrayOf(0f, 0.35f, 0.65f, 1f), Shader.TileMode.CLAMP)
++        base.strokeWidth = px * 2f
++        runnerShader = SweepGradient(
++            a, rho,
++            intArrayOf(0x00000000, 0x00000000, NX.CYAN, 0xFFFFFFFF.toInt(), NX.MAGENTA, 0x00000000, 0x00000000),
++            floatArrayOf(0f, 0.56f, 0.65f, 0.70f, 0.75f, 0.86f, 1f)
++        )
++        runner.shader = runnerShader
++        runner.strokeWidth = px * 2.6f
++        tick.strokeWidth = px * 2f
++        tick.color = NX.CYAN
++    }
++
++    /** Mulai gerak latar (panggil saat panel tampil). Memakai Choreographer, bukan ValueAnimator. */
++    fun start() {
++        if (loop != null) return
++        loop = Motion.loop(40) { ms -> timeMs = ms; invalidateSelf() }
++    }
++
++    fun stop() {
++        loop?.cancel()
++        loop = null
++    }
++
++    override fun draw(c: Canvas) {
++        val w = 2 * a
++        val h = rho + s
++        val t = timeMs / 1000f
++        val breathe = 0.78f + 0.22f * sin(t * 2f * PI.toFloat() / 3.2f)
++        val glowK = (0.25f + 0.75f * intro) * breathe
++
++        c.drawPath(path, fill)
++        c.save()
++        c.clipPath(path)
++        // aurora yang melayang pelan
++        c.save(); c.translate(sin(t * 0.45f) * px * 14f, sin(t * 0.33f) * px * 8f); c.drawRect(-w * 0.2f, -h * 0.2f, w * 1.2f, h * 1.2f, auroraA); c.restore()
++        c.save(); c.translate(sin(t * 0.38f + 2f) * px * 16f, sin(t * 0.5f + 1f) * px * 10f); c.drawRect(-w * 0.2f, -h * 0.2f, w * 1.2f, h * 1.2f, auroraB); c.restore()
++        c.save(); c.translate(sin(t * 0.3f + 4f) * px * 12f, 0f); c.drawRect(-w * 0.2f, 0f, w * 1.2f, h * 1.3f, auroraC); c.restore()
++        c.drawRect(0f, 0f, w, h, sheen)
++        c.restore()
++
++        // pendar bingkai neon (empat lapis) + warna yang mengalir
++        rotM.setRotate(t * 28f, a, rho)
++        edgeShader.setLocalMatrix(rotM)
++        edge.strokeWidth = px * 6f; edge.alpha = (36 * glowK).toInt(); c.drawPath(path, edge)
++        edge.strokeWidth = px * 1.5f; edge.alpha = (170 + 85 * intro).toInt().coerceAtMost(255); c.drawPath(path, edge)
++
++        // komet cahaya yang mengitari tepi
++        if (loop != null) {
++            moveM.setRotate(t * 85f, a, rho)
++            runnerShader.setLocalMatrix(moveM)
++            runner.alpha = (255 * intro).toInt()
++            c.drawPath(path, runner)
++        }
++        c.drawPath(rings, ringPaint)
++        c.drawPath(ring, track)
++
++        // sudut HUD, berlian puncak, garis dasar
++        tick.alpha = (200 * intro).toInt()
++        c.drawPath(brackets, tick)
++        val y = h - px * 5f
++        c.drawLine(w * 0.34f, y, w * 0.66f, y, base)
++    }
++
++    override fun setAlpha(alpha: Int) {}
++    override fun setColorFilter(cf: ColorFilter?) {}
++    @Deprecated("Deprecated in Java")
++    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
++}
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/MiniWindow.kt b/app/src/main/java/com/nexus/asisten/overlay/MiniWindow.kt
+index 845aaa0..1b20af0 100644
+--- a/app/src/main/java/com/nexus/asisten/overlay/MiniWindow.kt
++++ b/app/src/main/java/com/nexus/asisten/overlay/MiniWindow.kt
+@@ -55,6 +55,44 @@ class MiniWindow(
+             Site("WhatsApp", "https://web.whatsapp.com", true),
+             Site("Instagram", "https://www.instagram.com")
+         )
++        private val WEB = mapOf(
++            "com.whatsapp" to Site("WhatsApp", "https://web.whatsapp.com", true),
++            "com.whatsapp.w4b" to Site("WhatsApp", "https://web.whatsapp.com", true),
++            "com.google.android.youtube" to Site("YouTube", "https://m.youtube.com"),
++            "com.google.android.apps.youtube.music" to Site("YouTube Music", "https://music.youtube.com", true),
++            "com.instagram.android" to Site("Instagram", "https://www.instagram.com"),
++            "com.facebook.katana" to Site("Facebook", "https://m.facebook.com"),
++            "com.facebook.lite" to Site("Facebook", "https://m.facebook.com"),
++            "com.facebook.orca" to Site("Messenger", "https://www.messenger.com", true),
++            "com.zhiliaoapp.musically" to Site("TikTok", "https://www.tiktok.com"),
++            "com.ss.android.ugc.trill" to Site("TikTok", "https://www.tiktok.com"),
++            "org.telegram.messenger" to Site("Telegram", "https://web.telegram.org/a/", true),
++            "org.telegram.messenger.web" to Site("Telegram", "https://web.telegram.org/a/", true),
++            "com.discord" to Site("Discord", "https://discord.com/app", true),
++            "com.twitter.android" to Site("X", "https://x.com"),
++            "com.spotify.music" to Site("Spotify", "https://open.spotify.com", true),
++            "com.google.android.gm" to Site("Gmail", "https://mail.google.com"),
++            "com.google.android.apps.maps" to Site("Maps", "https://www.google.com/maps"),
++            "com.google.android.apps.messaging" to Site("Pesan", "https://messages.google.com/web", true),
++            "com.google.android.apps.photos" to Site("Foto", "https://photos.google.com"),
++            "com.google.android.apps.docs" to Site("Drive", "https://drive.google.com"),
++            "com.android.chrome" to Site("Google", "https://www.google.com"),
++            "org.mozilla.firefox" to Site("Google", "https://www.google.com"),
++            "com.microsoft.emmx" to Site("Bing", "https://www.bing.com"),
++            "com.reddit.frontpage" to Site("Reddit", "https://www.reddit.com"),
++            "com.pinterest" to Site("Pinterest", "https://www.pinterest.com"),
++            "com.netflix.mediaclient" to Site("Netflix", "https://www.netflix.com"),
++            "com.snapchat.android" to Site("Snapchat", "https://web.snapchat.com", true),
++            "com.shopee.id" to Site("Shopee", "https://shopee.co.id"),
++            "com.tokopedia.tkpd" to Site("Tokopedia", "https://www.tokopedia.com"),
++            "com.lazada.android" to Site("Lazada", "https://www.lazada.co.id"),
++            "com.linkedin.android" to Site("LinkedIn", "https://www.linkedin.com"),
++            "tv.twitch.android.app" to Site("Twitch", "https://m.twitch.tv")
++        )
++
++        /** Padanan versi web sebuah aplikasi (null bila tidak ada), supaya bisa dibuka sebagai jendela mini. */
++        fun siteFor(pkg: String, label: String): Site? = WEB[pkg]?.let { Site(label, it.url, it.desktop) }
++
+         private const val DESKTOP_UA =
+             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+         private var sx = -1
+@@ -70,6 +108,7 @@ class MiniWindow(
+     private var bar: View? = null
+     private var typing = false
+     private var anim: Motion.Handle? = null
++    private var addrView: android.widget.EditText? = null
+ 
+     val shown: Boolean get() = root != null
+ 
+@@ -119,6 +158,32 @@ class MiniWindow(
+         col.add(head, ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(40))
+         bar = head
+ 
++        // --- Bilah alamat: ketik alamat situs atau kata pencarian ---
++        val addr = android.widget.EditText(ctx)
++        addr.setSingleLine()
++        addr.hint = "Cari atau ketik alamat situs"
++        addr.textSize = 12.5f
++        addr.setTextColor(NX.TEXT)
++        addr.setHintTextColor(NX.MUTED)
++        addr.setPadding(ctx.dp(12), 0, ctx.dp(12), 0)
++        addr.background = rounded(withAlpha(Color.WHITE, 0x12), ctx.dpf(12f), withAlpha(NX.CYAN, 0x44), 1)
++        addr.inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
++        addr.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_GO
++        addr.setOnEditorActionListener { v, _, _ ->
++            go(v.text.toString())
++            true
++        }
++        // Mengetuk bilah alamat otomatis mengaktifkan keyboard.
++        addr.setOnTouchListener { v, e ->
++            if (e.actionMasked == MotionEvent.ACTION_DOWN && !typing) { toggleTyping(aa); v.post { v.requestFocus() } }
++            false
++        }
++        addrView = addr
++        val addrWrap = FrameLayout(ctx)
++        addrWrap.setPadding(ctx.dp(8), 0, ctx.dp(8), ctx.dp(6))
++        addrWrap.addView(addr, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ctx.dp(36)))
++        col.add(addrWrap, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
++
+         // --- Pintasan situs ---
+         val chips = ctx.hbox()
+         chips.setPadding(ctx.dp(8), 0, ctx.dp(8), ctx.dp(6))
+@@ -234,9 +299,25 @@ class MiniWindow(
+         val wv = web ?: return
+         wv.settings.userAgentString = if (site.desktop) DESKTOP_UA else null
+         titleView?.text = site.name
++        addrView?.setText("")
+         wv.loadUrl(site.url)
+     }
+ 
++    /** Memuat alamat: jika berupa domain, buka langsung; kalau bukan, cari di Google. */
++    private fun go(raw: String) {
++        val t = raw.trim()
++        if (t.isEmpty()) return
++        val url = when {
++            t.startsWith("http://") || t.startsWith("https://") -> t
++            !t.contains(' ') && t.contains('.') -> "https://$t"
++            else -> "https://www.google.com/search?q=" + java.net.URLEncoder.encode(t, "UTF-8")
++        }
++        web?.settings?.userAgentString = null
++        web?.loadUrl(url)
++        titleView?.text = t
++        addrView?.clearFocus()
++    }
++
+     private fun toggleTyping(label: TextView) {
+         val lp = params ?: return
+         val r = root ?: return
+@@ -248,7 +329,7 @@ class MiniWindow(
+         val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+         if (typing) {
+             web?.requestFocus()
+-            r.postDelayed({ web?.let { imm.showSoftInput(it, InputMethodManager.SHOW_IMPLICIT) } }, 180)
++            r.postDelayed({ (r.findFocus() ?: web)?.let { imm.showSoftInput(it, InputMethodManager.SHOW_IMPLICIT) } }, 220)
+         } else {
+             imm.hideSoftInputFromWindow(r.windowToken, 0)
+         }
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/OverlayService.kt b/app/src/main/java/com/nexus/asisten/overlay/OverlayService.kt
+index 42e0c8f..6cb61c8 100644
+--- a/app/src/main/java/com/nexus/asisten/overlay/OverlayService.kt
++++ b/app/src/main/java/com/nexus/asisten/overlay/OverlayService.kt
+@@ -741,8 +741,13 @@ class OverlayService : Service(), PanelHost, RecordHost {
+         handler.postDelayed({
+             try {
+                 val canFloat = Prefs.floatingWindow && GameUtils.freeformSupported(this)
++                val web = MiniWindow.siteFor(pkg, name)
+                 if (canFloat && GameUtils.launchFloating(this, pkg, Prefs.floatSize)) {
+                     toast("$name dibuka sebagai jendela mengambang")
++                } else if (web != null) {
++                    // HP tanpa jendela mengambang: pakai Jendela mini bawaan dengan versi web aplikasi ini.
++                    val m = mini ?: MiniWindow(this, wm) { mini = null }.also { mini = it }
++                    m.show(web)
+                 } else {
+                     // Tanpa izin atau pengaturan tambahan: buka penuh, lalu gelembung Nexus untuk kembali ke game.
+                     GameUtils.launch(this, pkg)
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/PanelUi.kt b/app/src/main/java/com/nexus/asisten/overlay/PanelUi.kt
+index 7d3d362..74c0b46 100644
+--- a/app/src/main/java/com/nexus/asisten/overlay/PanelUi.kt
++++ b/app/src/main/java/com/nexus/asisten/overlay/PanelUi.kt
+@@ -80,7 +80,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+     val root = FrameLayout(ctx)
+     private val scrim = View(ctx)
+     private var card: FrameLayout? = null
+-    private var sheet: SheetDrawable? = null
++    private var sheet: DomeDrawable? = null
+     private lateinit var pager: SnapPager
+     private lateinit var tabPill: View
+     private val tabLabels = ArrayList<TextView>()
+@@ -213,78 +213,123 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+         startPulse()
+     }
+ 
+-    // ---------- Tata letak ----------
++    // ---------- Tata letak: kubah 180° layar penuh ----------
++    private var arcFromX = FloatArray(0)
++    private var arcFromY = FloatArray(0)
++
+     private fun layoutUi(w: Int, h: Int) {
+         val land = w > h
+-        val margin = ctx.dp(8)
+-        val navB = if (land) 0 else ctx.navInset()
+         val status = if (land) 0 else ctx.statusInset()
+-        val sheetW: Int
+-        val sheetH: Int
++        val bottomM = if (land) ctx.dp(6) else ctx.navInset() + ctx.dp(6)
++        val a: Int
++        val rho: Int
++        val total: Int
+         if (land) {
+-            sheetW = min(w - 2 * margin, ctx.dp(780))
+-            sheetH = min(h - 2 * margin, ctx.dp(336))
++            a = min(w / 2 - ctx.dp(6), ctx.dp(440))
++            total = h - bottomM - ctx.dp(6)
++            rho = min(ctx.dp(150), (total * 0.42f).toInt())
+         } else {
+-            sheetW = min(w - 2 * margin, ctx.dp(520))
+-            sheetH = min(((h - status - navB - ctx.dp(24)) * 0.9f).toInt(), ctx.dp(640))
++            a = w / 2 - ctx.dp(4)
++            rho = a
++            total = min(h - status - bottomM - ctx.dp(6), ctx.dp(760))
+         }
++        val s = total - rho
++        val fw = 2 * a
++        val inset = ctx.dp(34)
+         val padH = ctx.dp(16)
++        val innerW = fw - 2 * padH
++
+         val frame = FrameLayout(ctx)
+-        frame.background = SheetDrawable(ctx.dpf(28f), ctx.dpf(1f)).also { sheet = it }
++        frame.background = DomeDrawable(a.toFloat(), rho.toFloat(), s.toFloat(), inset.toFloat(), ctx.dpf(26f), ctx.dpf(1f)).also { sheet = it }
+         frame.isClickable = true
+ 
+-        val body = LinearLayout(ctx)
+-        body.setPadding(padH, ctx.dp(20), padH, ctx.dp(12))
+-        val innerW = sheetW - 2 * padH
++        fun lp(wid: Int, hei: Int, gravity: Int, l: Int = 0, t: Int = 0, r: Int = 0) =
++            FrameLayout.LayoutParams(wid, hei, gravity).also { it.leftMargin = l; it.topMargin = t; it.rightMargin = r }
++
++        // --- Tombol aksi cepat berjajar di sepanjang busur ---
++        val items = listOf(
++            ArcItem(R.drawable.ic_bolt, "Boost", null) { host.boost() },
++            ArcItem(R.drawable.ic_scissors, "Cuplikan", null) { host.screenshot() },
++            ArcItem(R.drawable.ic_video, "Rekam", { host.isRecording() }) { host.toggleRecord() },
++            ArcItem(R.drawable.ic_bell, "Senyap", { Booster.dndOn(ctx) }) { host.setDnd(!Booster.dndOn(ctx)) },
++            ArcItem(R.drawable.ic_crosshair, "Bidik", { Prefs.crosshair }) { host.setCrosshair(!Prefs.crosshair) },
++            ArcItem(R.drawable.ic_hand, "Kunci tepi", { Prefs.edgeGuard }) { host.setEdgeGuard(!Prefs.edgeGuard) },
++            ArcItem(R.drawable.ic_monitor, "Jendela", null) { if (::pager.isInitialized) pager.snapTo(2) }
++        )
++        val ra = (a - inset).toFloat()
++        val rb = (rho - inset).toFloat()
++        val bw = ctx.dp(60)
++        val bh = ctx.dp(64)
++        arcFromX = FloatArray(items.size)
++        arcFromY = FloatArray(items.size)
++        items.forEachIndexed { i, item ->
++            val th = Math.PI + Math.PI * (i + 0.5) / items.size
++            val x = a + ra * Math.cos(th).toFloat()
++            val y = rho + rb * Math.sin(th).toFloat()
++            val v = arcButton(item)
++            quickBtns.add(v)
++            frame.addView(v, lp(bw, bh, Gravity.TOP or Gravity.START, (x - bw / 2f).toInt(), (y - bh / 2f).toInt()))
++            arcFromX[i] = a - x
++            arcFromY[i] = rho - y
++        }
++
++        // --- HUD di dalam busur ---
++        val hudViews = ArrayList<View>()
+         if (land) {
+-            body.orientation = LinearLayout.HORIZONTAL
+-            val gap = ctx.dp(14)
+-            val leftW = ((innerW - gap) * 0.44f).toInt()
+-            val rightW = innerW - gap - leftW
+-            val left = ctx.vbox()
+-            val header = buildHeader()
+-            val hud = buildHud(true)
+-            val actions = buildActions()
+-            left.add(header, MATCH, ctx.dp(44))
+-            left.add(hud, MATCH, ctx.dp(88), 0f, 0, 10, 0, 0)
+-            left.add(actions, MATCH, WRAP, 0f, 0, 12, 0, 0)
+-            sections += listOf(header, hud, actions)
+-            val right = ctx.vbox()
+-            val tabs = buildTabs(rightW)
+-            right.add(tabs, MATCH, ctx.dp(40))
+-            sections += tabs
+-            right.add(buildPager(rightW), MATCH, 0, 1f, 0, 6, 0, 0)
+-            body.add(left, leftW, MATCH, 0f, 0, 0, 14, 0)
+-            body.add(right, 0, MATCH, 1f)
+-            attachDrag(header)
++            val row = ctx.hbox(false)
++            val fps = buildFps(true)
++            val grid = buildChips(true)
++            row.add(fps, ctx.dp(170), MATCH, 0f, 0, 0, 10, 0)
++            row.add(grid, ctx.dp(196), MATCH)
++            frame.addView(row, lp(WRAP, ctx.dp(74), Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, ctx.dp(72)))
++            hudViews += row
+         } else {
+-            body.orientation = LinearLayout.VERTICAL
+-            val header = buildHeader()
+-            val hud = buildHud(false)
+-            val actions = buildActions()
++            val chipsW = min(fw - ctx.dp(56), ctx.dp(320))
++            val chips = buildChips(false)
++            val chipsTop = rho - ctx.dp(46)
++            frame.addView(chips, lp(chipsW, ctx.dp(38), Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, chipsTop))
++            val fps = buildFps(false)
++            frame.addView(fps, lp(min(fw - ctx.dp(80), ctx.dp(260)), ctx.dp(56), Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, chipsTop - ctx.dp(62)))
++            hudViews += listOf(chips, fps)
++        }
++
++        // --- Header, tab, dan halaman di bagian lurus bawah busur ---
++        val top: Int
++        val pagerTop: Int
++        val header: LinearLayout
++        if (land) {
++            val tabs = buildTabs(ctx.dp(330))
++            header = buildHeader(tabs, ctx.dp(330))
++            top = rho + ctx.dp(6)
++            pagerTop = rho + ctx.dp(58)
++            frame.addView(header, lp(MATCH, ctx.dp(44), Gravity.TOP or Gravity.START, padH, top, padH))
++            sections += header
++        } else {
++            header = buildHeader(null, 0)
++            top = rho + ctx.dp(10)
++            pagerTop = rho + ctx.dp(106)
++            frame.addView(header, lp(MATCH, ctx.dp(44), Gravity.TOP or Gravity.START, padH, top, padH))
+             val tabs = buildTabs(innerW)
+-            body.add(header, MATCH, ctx.dp(44))
+-            body.add(hud, MATCH, ctx.dp(96), 0f, 0, 12, 0, 0)
+-            body.add(actions, MATCH, WRAP, 0f, 0, 14, 0, 0)
+-            body.add(tabs, MATCH, ctx.dp(40), 0f, 0, 14, 0, 0)
+-            body.add(buildPager(innerW), MATCH, 0, 1f, 0, 6, 0, 0)
+-            sections += listOf(header, hud, actions, tabs)
+-            attachDrag(header)
++            frame.addView(tabs, lp(MATCH, ctx.dp(40), Gravity.TOP or Gravity.START, padH, rho + ctx.dp(60), padH))
++            sections += header
++            sections += tabs
+         }
+-        frame.addView(body, FrameLayout.LayoutParams(MATCH, MATCH))
++        sections += hudViews
++        val pagerH = (total - pagerTop - ctx.dp(12)).coerceAtLeast(ctx.dp(120))
++        frame.addView(buildPager(innerW), lp(innerW, pagerH, Gravity.TOP or Gravity.START, padH, pagerTop))
++        attachDrag(header)
+ 
+-        // Zona seret di puncak (pegangan).
++        // Zona seret di puncak kubah.
+         val grab = View(ctx)
+-        frame.addView(grab, FrameLayout.LayoutParams(MATCH, ctx.dp(22), Gravity.TOP))
++        frame.addView(grab, lp(ctx.dp(180), ctx.dp(30), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+         attachDrag(grab)
+ 
+-        val bm = margin + navB
+-        root.addView(frame, FrameLayout.LayoutParams(sheetW, sheetH, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also {
+-            it.bottomMargin = bm
++        root.addView(frame, FrameLayout.LayoutParams(fw, total, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).also {
++            it.bottomMargin = bottomM
+         })
+-        frame.pivotX = sheetW / 2f
+-        frame.pivotY = sheetH.toFloat()
+-        cardH = sheetH + bm
++        frame.pivotX = fw / 2f
++        frame.pivotY = total.toFloat()
++        cardH = total + bottomM
+         card = frame
+         onPagePos(0f)
+ 
+@@ -293,41 +338,46 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+         frame.translationY = (cardH + ctx.dp(24)).toFloat()
+         scrim.alpha = 0f
+         sections.forEach { it.alpha = 0f; it.translationY = ctx.dpf(18f) }
+-        quickBtns.forEach { it.alpha = 0f; it.scaleX = 0.6f; it.scaleY = 0.6f }
++        quickBtns.forEachIndexed { i, b ->
++            b.alpha = 0f; b.scaleX = 0.5f; b.scaleY = 0.5f
++            b.translationX = arcFromX[i]; b.translationY = arcFromY[i]
++        }
+     }
+ 
+-    private fun buildHeader(): LinearLayout {
++    private fun buildHeader(tabs: View?, tabsW: Int): LinearLayout {
+         val row = ctx.hbox()
+         val iconBox = FrameLayout(ctx)
+         iconBox.setPadding(ctx.dp(2), ctx.dp(2), ctx.dp(2), ctx.dp(2))
+-        iconBox.background = rounded(0, ctx.dpf(15f), withAlpha(NX.CYAN, 0x99), ctx.dp(1))
++        iconBox.background = rounded(0, ctx.dpf(14f), withAlpha(NX.CYAN, 0x99), ctx.dp(1))
+         val iv = ImageView(ctx)
+         val gi = host.gameIcon()
+         if (gi != null) iv.setImageDrawable(gi) else { iv.setImageResource(R.drawable.ic_gamepad); iv.setColorFilter(NX.CYAN); iv.setPadding(ctx.dp(8), ctx.dp(8), ctx.dp(8), ctx.dp(8)) }
+         iv.scaleType = ImageView.ScaleType.CENTER_CROP
+-        iv.background = rounded(NX.SURFACE2, ctx.dpf(13f))
++        iv.background = rounded(NX.SURFACE2, ctx.dpf(12f))
+         iv.clipToOutline = true
+         iv.outlineProvider = ViewOutlineProvider.BACKGROUND
+         iconBox.addView(iv, FrameLayout.LayoutParams(MATCH, MATCH))
+-        row.add(iconBox, ctx.dp(44), ctx.dp(44), 0f, 0, 0, 12, 0)
++        row.add(iconBox, ctx.dp(42), ctx.dp(42), 0f, 0, 0, 10, 0)
+ 
+         val names = ctx.vbox()
+-        val name = ctx.tv(host.gameName, 16.5f, NX.TEXT, 700)
++        val name = ctx.tv(host.gameName, 15.5f, NX.TEXT, 700)
+         name.maxLines = 1
+         name.ellipsize = android.text.TextUtils.TruncateAt.END
+         names.addView(name)
+-        names.add(ctx.tv("Asisten Game aktif", 11f, NX.MUTED, 500), t = 1)
++        names.add(ctx.tv("Asisten Game aktif", 10.5f, NX.MUTED, 500), t = 1)
+         row.add(names, 0, WRAP, 1f)
+ 
+         val live = ctx.hbox()
+-        live.setPadding(ctx.dp(9), ctx.dp(4), ctx.dp(10), ctx.dp(4))
++        live.setPadding(ctx.dp(8), ctx.dp(4), ctx.dp(9), ctx.dp(4))
+         live.background = rounded(withAlpha(NX.GOOD, 0x22), ctx.dpf(11f), withAlpha(NX.GOOD, 0x77), 1)
+         val dot = View(ctx)
+         dot.background = circle(NX.GOOD)
+         liveDot = dot
+-        live.add(dot, ctx.dp(6), ctx.dp(6), 0f, 0, 0, 6, 0)
+-        live.addView(ctx.tv("LIVE", 10f, NX.GOOD, 700).also { it.letterSpacing = 0.14f })
+-        row.add(live, WRAP, WRAP, 0f, 0, 0, 10, 0)
++        live.add(dot, ctx.dp(6), ctx.dp(6), 0f, 0, 0, 5, 0)
++        live.addView(ctx.tv("LIVE", 9.5f, NX.GOOD, 700).also { it.letterSpacing = 0.14f })
++        row.add(live, WRAP, WRAP, 0f, 8, 0, 10, 0)
++
++        if (tabs != null) row.add(tabs, tabsW, ctx.dp(40), 0f, 0, 0, 10, 0)
+ 
+         val close = FrameLayout(ctx)
+         close.background = NeonDrawable(Color.parseColor("#F0141A2E"), Color.parseColor("#F00A0D18"), ctx.dpf(17f))
+@@ -338,56 +388,62 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+         return row
+     }
+ 
+-    private fun buildHud(land: Boolean): LinearLayout {
+-        val row = ctx.hbox(false)
+-        val fpsCard = ctx.vbox(12, 8)
+-        fpsCard.background = GradientDrawable(
+-            GradientDrawable.Orientation.TL_BR, intArrayOf(withAlpha(NX.CYAN, 0x2A), withAlpha(NX.ACCENT, 0x16))
+-        ).also { it.cornerRadius = ctx.dpf(18f); it.setStroke(ctx.dp(1), withAlpha(NX.CYAN, 0x88)) }
+-        fpsCard.addView(ctx.tv("FPS", 9.5f, NX.CYAN, 700).also { it.letterSpacing = 0.16f })
+-        val fps = ctx.tv("--", if (land) 30f else 38f, NX.TEXT, 700)
+-        fps.setShadowLayer(ctx.dpf(10f), 0f, 0f, NX.CYAN)
++    /** Blok FPS: angka besar bercahaya + grafik garis. */
++    private fun buildFps(land: Boolean): LinearLayout {
++        val box = if (land) ctx.vbox(12, 8) else ctx.hbox()
++        if (land) {
++            box.background = GradientDrawable(
++                GradientDrawable.Orientation.TL_BR, intArrayOf(withAlpha(NX.CYAN, 0x2A), withAlpha(NX.ACCENT, 0x16))
++            ).also { it.cornerRadius = ctx.dpf(18f); it.setStroke(ctx.dp(1), withAlpha(NX.CYAN, 0x88)) }
++        }
++        val num = ctx.vbox()
++        num.addView(ctx.tv("FPS", 9.5f, NX.CYAN, 700).also { it.letterSpacing = 0.18f })
++        val fps = ctx.tv("--", if (land) 30f else 42f, NX.TEXT, 700)
++        fps.setShadowLayer(ctx.dpf(12f), 0f, 0f, NX.CYAN)
+         tvFps = fps
+-        fpsCard.add(fps, WRAP, WRAP)
++        num.addView(fps)
+         val sp = SparkView(ctx)
+         spark = sp
+-        fpsCard.add(sp, MATCH, 0, 1f, 0, 2, 0, 0)
+-        row.add(fpsCard, 0, MATCH, 1.15f, 0, 0, 8, 0)
+-
+-        val grid = ctx.vbox()
+-        val ping = statChip("Ping", NX.TEXT)
+-        val temp = statChip("Suhu", NX.WARN)
+-        val bat = statChip("Baterai", NX.GOOD)
+-        val ses = statChip("Sesi", NX.TEXT2)
+-        tvPing = ping.second; tvTemp = temp.second; tvBat = bat.second; tvSessionHero = ses.second
+-        val r1 = ctx.hbox(false)
+-        r1.add(ping.first, 0, MATCH, 1f, 0, 0, 8, 0)
+-        r1.add(temp.first, 0, MATCH, 1f)
+-        val r2 = ctx.hbox(false)
+-        r2.add(bat.first, 0, MATCH, 1f, 0, 0, 8, 0)
+-        r2.add(ses.first, 0, MATCH, 1f)
+-        grid.add(r1, MATCH, 0, 1f, 0, 0, 0, 8)
+-        grid.add(r2, MATCH, 0, 1f)
+-        row.add(grid, 0, MATCH, 1.85f)
+-        return row
++        if (land) {
++            box.add(num, WRAP, WRAP)
++            box.add(sp, MATCH, 0, 1f, 0, 2, 0, 0)
++        } else {
++            box.gravity = Gravity.CENTER
++            box.add(num, WRAP, WRAP, 0f, 0, 0, 14, 0)
++            box.add(sp, 0, MATCH, 1f, 0, 6, 0, 4)
++        }
++        return box
+     }
+ 
+-    private fun buildActions(): LinearLayout {
+-        val items = listOf(
+-            ArcItem(R.drawable.ic_bolt, "Boost", null) { host.boost() },
+-            ArcItem(R.drawable.ic_scissors, "Cuplikan", null) { host.screenshot() },
+-            ArcItem(R.drawable.ic_video, "Rekam", { host.isRecording() }) { host.toggleRecord() },
+-            ArcItem(R.drawable.ic_bell, "Senyap", { Booster.dndOn(ctx) }) { host.setDnd(!Booster.dndOn(ctx)) },
+-            ArcItem(R.drawable.ic_crosshair, "Bidik", { Prefs.crosshair }) { host.setCrosshair(!Prefs.crosshair) },
+-            ArcItem(R.drawable.ic_hand, "Kunci tepi", { Prefs.edgeGuard }) { host.setEdgeGuard(!Prefs.edgeGuard) }
+-        )
+-        val row = ctx.hbox(false)
+-        items.forEach { item ->
+-            val v = arcButton(item)
+-            quickBtns.add(v)
+-            row.add(v, 0, WRAP, 1f)
++    private fun miniChip(label: String, color: Int): Pair<LinearLayout, TextView> {
++        val b = ctx.vbox(8, 3)
++        b.gravity = Gravity.CENTER
++        b.background = glass(12f)
++        val l = ctx.tv(label, 8.5f, NX.MUTED, 700).also { it.isAllCaps = true; it.letterSpacing = 0.12f }
++        val v = ctx.tv("--", 13.5f, color, 700)
++        b.add(l, WRAP, WRAP)
++        b.add(v, WRAP, WRAP)
++        return Pair(b, v)
++    }
++
++    private fun buildChips(grid: Boolean): LinearLayout {
++        val ping = miniChip("Ping", NX.TEXT)
++        val temp = miniChip("Suhu", NX.WARN)
++        val bat = miniChip("Baterai", NX.GOOD)
++        val ses = miniChip("Sesi", NX.TEXT2)
++        tvPing = ping.second; tvTemp = temp.second; tvBat = bat.second; tvSessionHero = ses.second
++        if (!grid) {
++            val row = ctx.hbox(false)
++            listOf(ping, temp, bat, ses).forEachIndexed { i, c -> row.add(c.first, 0, MATCH, 1f, 0, 0, if (i < 3) 6 else 0, 0) }
++            return row
+         }
+-        return row
++        val col = ctx.vbox()
++        val r1 = ctx.hbox(false)
++        r1.add(ping.first, 0, MATCH, 1f, 0, 0, 6, 0); r1.add(temp.first, 0, MATCH, 1f)
++        val r2 = ctx.hbox(false)
++        r2.add(bat.first, 0, MATCH, 1f, 0, 0, 6, 0); r2.add(ses.first, 0, MATCH, 1f)
++        col.add(r1, MATCH, 0, 1f, 0, 0, 0, 6); col.add(r2, MATCH, 0, 1f)
++        return col
+     }
+ 
+     private fun buildTabs(innerW: Int): FrameLayout {
+@@ -572,11 +628,14 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+                 v.translationY = ctx.dpf(18f) * (1f - Motion.smooth(t))
+             }
+         }
+-        // Tombol aksi cepat "pop" satu per satu.
++        // Tombol aksi cepat terbang dari pusat kubah ke posisinya di busur, satu per satu.
+         quickBtns.forEachIndexed { i, b ->
+-            runs += Motion.run(620, 260L + i * 55L) { t ->
++            runs += Motion.run(700, 230L + i * 55L) { t ->
+                 val e = Motion.spring(t)
+-                val sc = 0.6f + 0.4f * e
++                val k = 1f - e
++                b.translationX = arcFromX[i] * k
++                b.translationY = arcFromY[i] * k
++                val sc = 0.5f + 0.5f * e
+                 b.scaleX = sc; b.scaleY = sc
+                 b.alpha = Motion.outCubic((t * 3f).coerceAtMost(1f))
+             }
+@@ -877,7 +936,10 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+         col.add(ctx.sectionTitle("Aplikasi saya"), t = 18, b = 10)
+         val apps = host.dockApps()
+         val cells = ArrayList<View>()
+-        apps.forEach { (pkg, d) -> cells.add(appCell(d, GameRepo.label(ctx, pkg)) { host.launchDock(pkg) }) }
++        apps.forEach { (pkg, d) ->
++            val label = GameRepo.label(ctx, pkg)
++            cells.add(appCell(d, label, MiniWindow.siteFor(pkg, label) != null) { host.launchDock(pkg) })
++        }
+         val plus = FrameLayout(ctx)
+         plus.background = rounded(0, ctx.dpf(16f), withAlpha(NX.ACCENT, 0x88), ctx.dp(1))
+         plus.addView(ctx.icon(R.drawable.ic_add, NX.ACCENT, 24), FrameLayout.LayoutParams(ctx.dp(24), ctx.dp(24), Gravity.CENTER))
+@@ -909,7 +971,7 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+                 col.add(ctx.chipRow(listOf("Kecil", "Sedang", "Besar"), Prefs.floatSize) { Prefs.floatSize = it }, t = 8)
+             }
+         } else {
+-            col.add(ctx.tv("Aplikasi asli dibuka cepat di atas game. Ketuk gelembung Nexus yang muncul untuk kembali ke game.", 11.5f, NX.MUTED), t = 14)
++            col.add(ctx.tv("Aplikasi dengan lencana biru dibuka sebagai jendela mini (versi web) di atas game. Aplikasi lain dibuka penuh dengan gelembung Nexus untuk kembali ke game. Jendela aplikasi asli yang sungguhan hanya mungkin di HP yang mendukung freeform.", 11.5f, NX.MUTED), t = 14)
+         }
+         col.add(View(ctx), MATCH, ctx.dp(10))
+         return sv
+@@ -926,16 +988,27 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+         return v
+     }
+ 
+-    private fun appCell(icon: Drawable, name: String, onClick: () -> Unit): View {
++    private fun appCell(icon: Drawable, name: String, mini: Boolean = false, onClick: () -> Unit): View {
+         val v = ctx.vbox()
+         v.gravity = Gravity.CENTER_HORIZONTAL
+         val iv = ImageView(ctx)
+         iv.setImageDrawable(icon)
+         iv.background = rounded(NX.SURFACE2, ctx.dpf(16f))
+         iv.clipToOutline = true
+-        iv.outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
++        iv.outlineProvider = ViewOutlineProvider.BACKGROUND
+         iv.scaleType = ImageView.ScaleType.CENTER_CROP
+-        v.add(iv, ctx.dp(54), ctx.dp(54))
++        val holder = FrameLayout(ctx)
++        holder.addView(iv, FrameLayout.LayoutParams(ctx.dp(54), ctx.dp(54)))
++        if (mini) {
++            // Lencana: aplikasi ini bisa dibuka sebagai jendela mini (versi web) di HP mana pun.
++            val badge = FrameLayout(ctx)
++            badge.background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(NX.ACCENT_DEEP, NX.CYAN)).also {
++                it.shape = GradientDrawable.OVAL; it.setStroke(ctx.dp(1), Color.parseColor("#FF0A0D18"))
++            }
++            badge.addView(ctx.icon(R.drawable.ic_monitor, Color.WHITE, 11), FrameLayout.LayoutParams(ctx.dp(11), ctx.dp(11), Gravity.CENTER))
++            holder.addView(badge, FrameLayout.LayoutParams(ctx.dp(20), ctx.dp(20), Gravity.BOTTOM or Gravity.END))
++        }
++        v.add(holder, ctx.dp(54), ctx.dp(54))
+         v.add(ctx.tv(name, 10.5f, NX.TEXT2, 500).also { it.gravity = Gravity.CENTER; it.maxLines = 1; it.ellipsize = android.text.TextUtils.TruncateAt.END }, MATCH, WRAP, 0f, 2, 6, 2, 0)
+         v.setOnClickListener { onClick() }
+         v.pressFx(0.9f)
+@@ -946,14 +1019,16 @@ class PanelUi(private val ctx: Context, private val host: PanelHost) {
+     private fun pageSaya(): View {
+         val (sv, col) = scrollPage()
+         val head = ctx.hbox()
+-        val avatar = ctx.tv(Prefs.userName.take(1).uppercase(), 22f, Color.WHITE, 700)
+-        avatar.gravity = Gravity.CENTER
+-        avatar.background = gradientRounded(NX.ACCENT_DEEP, NX.CYAN, ctx.dpf(18f), GradientDrawable.Orientation.TL_BR)
+-        avatar.glow(NX.ACCENT, 8f)
++        val avatar = ImageView(ctx)
++        avatar.scaleType = ImageView.ScaleType.CENTER_CROP
++        avatar.background = gradientRounded(NX.ACCENT_DEEP, NX.CYAN, ctx.dpf(26f), GradientDrawable.Orientation.TL_BR)
++        avatar.clipToOutline = true
++        avatar.outlineProvider = ViewOutlineProvider.BACKGROUND
++        com.nexus.asisten.core.Avatar.into(ctx, avatar)
+         head.add(avatar, ctx.dp(52), ctx.dp(52), 0f, 0, 0, 14, 0)
+         val names = ctx.vbox()
+         names.addView(ctx.tv(Prefs.userName, 18f, NX.TEXT, 700))
+-        names.add(ctx.tv("Sedang bermain ${host.gameName}", 12.5f, NX.TEXT2), t = 2)
++        names.add(ctx.tv(if (Prefs.googleEmail.isNotEmpty()) Prefs.googleEmail else "Sedang bermain ${host.gameName}", 12.5f, NX.TEXT2), t = 2)
+         head.add(names, 0, WRAP, 1f)
+         col.add(head, b = 14)
+ 
+diff --git a/app/src/main/java/com/nexus/asisten/overlay/SheetDrawable.kt b/app/src/main/java/com/nexus/asisten/overlay/SheetDrawable.kt
+deleted file mode 100644
+index 0d8090b..0000000
+--- a/app/src/main/java/com/nexus/asisten/overlay/SheetDrawable.kt
++++ /dev/null
+@@ -1,135 +0,0 @@
+-package com.nexus.asisten.overlay
+-
+-import android.graphics.Canvas
+-import android.graphics.ColorFilter
+-import android.graphics.LinearGradient
+-import android.graphics.Matrix
+-import android.graphics.Paint
+-import android.graphics.Path
+-import android.graphics.PixelFormat
+-import android.graphics.RadialGradient
+-import android.graphics.Rect
+-import android.graphics.RectF
+-import android.graphics.Shader
+-import android.graphics.drawable.Drawable
+-import com.nexus.asisten.ui.Motion
+-import com.nexus.asisten.ui.NX
+-import kotlin.math.PI
+-import kotlin.math.sin
+-
+-/**
+- * Latar panel "Obsidian Aurora" (desain: papan Canva/Figma Nexus Overlay 1.9).
+- * Kartu kaca obsidian melayang dengan sudut bundar, cahaya aurora violet/cyan yang bernapas pelan,
+- * garis tepi atas bergradien dengan kilat cahaya yang menyapu, dan pegangan seret di puncak.
+- * Sengaja ringan digambar: hanya satu lapis aurora bergerak dan satu garis tepi, supaya animasi buka
+- * panel tetap mulus di atas game yang sedang berat.
+- */
+-class SheetDrawable(
+-    private val radius: Float,
+-    private val px: Float
+-) : Drawable() {
+-
+-    private val path = Path()
+-    private val rect = RectF()
+-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+-    private val aurora1 = Paint(Paint.ANTI_ALIAS_FLAG)
+-    private val aurora2 = Paint(Paint.ANTI_ALIAS_FLAG)
+-    private val sheen = Paint(Paint.ANTI_ALIAS_FLAG)
+-    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+-    private val sweep = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+-    private val handle = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x66FFFFFF }
+-    private val sweepM = Matrix()
+-    private var sweepShader: LinearGradient? = null
+-
+-    private var timeMs = 0L
+-    private var loop: Motion.Loop? = null
+-
+-    /** 0..1: bingkai "menyala" saat panel dibuka. */
+-    var intro = 1f
+-        set(v) { field = v.coerceIn(0f, 1f); invalidateSelf() }
+-
+-    override fun onBoundsChange(b: Rect) {
+-        val w = b.width().toFloat()
+-        val h = b.height().toFloat()
+-        val m = px * 1.5f
+-        rect.set(m, m, w - m, h - m)
+-        path.reset()
+-        path.addRoundRect(rect, radius, radius, Path.Direction.CW)
+-
+-        fill.shader = LinearGradient(
+-            0f, 0f, 0f, h,
+-            intArrayOf(0xF0121430.toInt(), 0xF40A0C1E.toInt(), 0xF8060712.toInt()), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP
+-        )
+-        aurora1.shader = RadialGradient(w * 0.85f, h * 0.02f, w * 0.75f, intArrayOf(0x558B5CFF, 0x00000000), null, Shader.TileMode.CLAMP)
+-        aurora2.shader = RadialGradient(w * 0.08f, h * 0.30f, w * 0.65f, intArrayOf(0x3822E4FF, 0x00000000), null, Shader.TileMode.CLAMP)
+-        sheen.shader = LinearGradient(0f, 0f, 0f, h * 0.22f, intArrayOf(0x24FFFFFF, 0x00FFFFFF), null, Shader.TileMode.CLAMP)
+-        edge.shader = LinearGradient(
+-            0f, 0f, w, 0f,
+-            intArrayOf(0x00000000, NX.CYAN, NX.ACCENT, NX.MAGENTA, 0x00000000), floatArrayOf(0f, 0.2f, 0.5f, 0.8f, 1f), Shader.TileMode.CLAMP
+-        )
+-        edge.strokeWidth = px * 1.4f
+-        sweepShader = LinearGradient(
+-            0f, 0f, w * 0.35f, 0f,
+-            intArrayOf(0x00FFFFFF, 0xFFFFFFFF.toInt(), 0x00FFFFFF), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP
+-        )
+-        sweep.shader = sweepShader
+-        sweep.strokeWidth = px * 2.2f
+-    }
+-
+-    fun start() {
+-        if (loop != null) return
+-        loop = Motion.loop(40) { ms -> timeMs = ms; invalidateSelf() }
+-    }
+-
+-    fun stop() {
+-        loop?.cancel()
+-        loop = null
+-    }
+-
+-    override fun draw(c: Canvas) {
+-        val w = bounds.width().toFloat()
+-        val h = bounds.height().toFloat()
+-        if (w <= 0f) return
+-        val t = timeMs / 1000f
+-        val breathe = 0.8f + 0.2f * sin(t * 2f * PI.toFloat() / 3.6f)
+-
+-        c.drawPath(path, fill)
+-        c.save()
+-        c.clipPath(path)
+-        c.save(); c.translate(sin(t * 0.4f) * px * 12f, sin(t * 0.3f) * px * 6f)
+-        aurora1.alpha = (255 * (0.35f + 0.65f * intro) * breathe).toInt().coerceIn(0, 255)
+-        c.drawRect(-w * 0.2f, -h * 0.1f, w * 1.2f, h * 1.1f, aurora1); c.restore()
+-        c.save(); c.translate(sin(t * 0.33f + 2f) * px * 14f, sin(t * 0.45f) * px * 8f)
+-        c.drawRect(-w * 0.2f, -h * 0.1f, w * 1.2f, h * 1.1f, aurora2); c.restore()
+-        c.drawRect(0f, 0f, w, h * 0.25f, sheen)
+-        c.restore()
+-
+-        // Garis tepi bergradien (memudar di kedua sisi, paling terang di tengah atas).
+-        edge.alpha = (90 + 165 * intro).toInt().coerceIn(0, 255)
+-        c.drawPath(path, edge)
+-
+-        // Kilat cahaya yang menyapu garis tepi atas dari kiri ke kanan.
+-        if (loop != null) {
+-            val cycle = (timeMs % 4200L) / 4200f
+-            val x = -w * 0.35f + (w * 1.35f) * Motion.inOutCubic(cycle)
+-            sweepM.setTranslate(x, 0f)
+-            sweepShader?.setLocalMatrix(sweepM)
+-            sweep.alpha = (200 * intro).toInt()
+-            c.save()
+-            c.clipRect(0f, 0f, w, radius * 0.9f)
+-            c.drawPath(path, sweep)
+-            c.restore()
+-        }
+-
+-        // Pegangan seret.
+-        val hw = px * 38f
+-        val hh = px * 4f
+-        val cy = px * 9f
+-        c.drawRoundRect(w / 2f - hw / 2f, cy - hh / 2f, w / 2f + hw / 2f, cy + hh / 2f, hh, hh, handle)
+-    }
+-
+-    override fun setAlpha(alpha: Int) {}
+-    override fun setColorFilter(cf: ColorFilter?) {}
+-    @Deprecated("Deprecated in Java")
+-    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+-}
+diff --git a/app/src/main/java/com/nexus/asisten/ui/PerfRingView.kt b/app/src/main/java/com/nexus/asisten/ui/PerfRingView.kt
+index 4317b15..9a3f13a 100644
+--- a/app/src/main/java/com/nexus/asisten/ui/PerfRingView.kt
++++ b/app/src/main/java/com/nexus/asisten/ui/PerfRingView.kt
+@@ -2,18 +2,19 @@ package com.nexus.asisten.ui
+ 
+ import android.content.Context
+ import android.graphics.Canvas
++import android.graphics.Color
++import android.graphics.Matrix
+ import android.graphics.Paint
+-import android.graphics.Path
+ import android.graphics.RectF
++import android.graphics.SweepGradient
++import android.graphics.Typeface
+ import android.util.AttributeSet
+ import android.view.View
+-import kotlin.math.cos
+ import kotlin.math.min
+-import kotlin.math.sin
+ 
+ /**
+- * Gauge khas Nexus: busur kiri = suhu, busur kanan = baterai,
+- * segitiga di tengah = profil (kontrol, gambar, kehalusan) sesuai mode.
++ * Gauge Nexus 1.9.1: dua cincin 270°. Cincin luar = baterai (angka besar di tengah),
++ * cincin dalam = suhu (hijau, kuning, merah). Bersih dan mudah dibaca sekilas.
+  */
+ class PerfRingView @JvmOverloads constructor(
+     ctx: Context, attrs: AttributeSet? = null
+@@ -21,24 +22,25 @@ class PerfRingView @JvmOverloads constructor(
+ 
+     private var heat = 0.3f
+     private var battery = 0.5f
+-    private var profile = floatArrayOf(0.7f, 0.7f, 0.7f)
+     private var accent = NX.ACCENT
+ 
+     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+-        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; color = NX.SURFACE2
++        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; color = withAlpha(Color.WHITE, 0x14)
+     }
+-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+-        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
++    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
++    private val glowP = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
++    private val big = Paint(Paint.ANTI_ALIAS_FLAG).apply {
++        color = NX.TEXT; textAlign = Paint.Align.CENTER; typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+     }
+-    private val tri = Paint(Paint.ANTI_ALIAS_FLAG)
+-    private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+-        color = NX.TEXT2; textAlign = Paint.Align.CENTER
++    private val small = Paint(Paint.ANTI_ALIAS_FLAG).apply {
++        color = NX.MUTED; textAlign = Paint.Align.CENTER; typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
++        letterSpacing = 0.14f
+     }
++    private val rot = Matrix()
+ 
+-    fun set(heatFrac: Float, batFrac: Float, prof: FloatArray, accentColor: Int) {
++    fun set(heatFrac: Float, batFrac: Float, @Suppress("UNUSED_PARAMETER") prof: FloatArray, accentColor: Int) {
+         heat = heatFrac.coerceIn(0f, 1f)
+         battery = batFrac.coerceIn(0f, 1f)
+-        profile = prof
+         accent = accentColor
+         invalidate()
+     }
+@@ -48,57 +50,53 @@ class PerfRingView @JvmOverloads constructor(
+         val h = height.toFloat()
+         val d = resources.displayMetrics.density
+         val cx = w / 2f
+-        val cy = h * 0.46f
+-        val r = min(w * 0.46f, h * 0.42f)
+-        val sw = 7f * d
++        val cy = h / 2f
++        val rOut = min(w, h) * 0.5f - 12f * d
++        val rIn = rOut - 18f * d
++        val sw = 9f * d
++        val start = 135f
++        val sweep = 270f
+         track.strokeWidth = sw
+         fill.strokeWidth = sw
+-        val oval = RectF(cx - r, cy - r, cx + r, cy + r)
+ 
+-        // Suhu (kiri): terisi dari bawah ke atas
+-        c.drawArc(oval, 140f, 80f, false, track)
+-        val heatColor = when {
+-            heat > 0.75f -> NX.HOT
+-            heat > 0.5f -> NX.WARN
+-            else -> NX.GOOD
+-        }
+-        fill.color = heatColor
+-        c.drawArc(oval, 140f, 80f * heat, false, fill)
++        val outer = RectF(cx - rOut, cy - rOut, cx + rOut, cy + rOut)
++        val inner = RectF(cx - rIn, cy - rIn, cx + rIn, cy + rIn)
+ 
+-        // Baterai (kanan): terisi dari bawah ke atas
+-        c.drawArc(oval, 320f, 80f, false, track)
+-        fill.color = if (battery < 0.2f) NX.HOT else NX.GOOD
+-        c.drawArc(oval, 40f - 80f * battery, 80f * battery, false, fill)
++        // Cincin luar: baterai (gradien hijau -> cyan).
++        c.drawArc(outer, start, sweep, false, track)
++        val low = battery < 0.2f
++        val sg = SweepGradient(cx, cy, intArrayOf(if (low) NX.HOT else NX.GOOD, if (low) NX.WARN else NX.CYAN, if (low) NX.HOT else NX.GOOD), floatArrayOf(0f, 0.75f, 1f))
++        rot.setRotate(start - 6f, cx, cy)
++        sg.setLocalMatrix(rot)
++        fill.shader = sg
++        glowP.strokeWidth = sw + 7f * d
++        glowP.shader = sg
++        glowP.alpha = 46
++        if (battery > 0.01f) {
++            c.drawArc(outer, start, sweep * battery, false, glowP)
++            c.drawArc(outer, start, sweep * battery, false, fill)
++        }
++        fill.shader = null
++        glowP.shader = null
+ 
+-        // Segitiga profil
+-        val tr = r * 0.62f
+-        val angles = floatArrayOf(-90f, 30f, 150f)
+-        val back = Path()
+-        val front = Path()
+-        for (i in 0..2) {
+-            val a = Math.toRadians(angles[i].toDouble())
+-            val bx = cx + (tr * cos(a)).toFloat()
+-            val by = cy + (tr * sin(a)).toFloat()
+-            val k = profile[i].coerceIn(0.1f, 1f)
+-            val fx = cx + (tr * k * cos(a)).toFloat()
+-            val fy = cy + (tr * k * sin(a)).toFloat()
+-            if (i == 0) { back.moveTo(bx, by); front.moveTo(fx, fy) } else { back.lineTo(bx, by); front.lineTo(fx, fy) }
++        // Cincin dalam: suhu.
++        track.strokeWidth = sw * 0.7f
++        fill.strokeWidth = sw * 0.7f
++        c.drawArc(inner, start, sweep, false, track)
++        fill.color = when {
++            heat > 0.75f -> NX.HOT
++            heat > 0.5f -> NX.WARN
++            else -> accent
+         }
+-        back.close(); front.close()
+-        tri.style = Paint.Style.FILL; tri.color = NX.SURFACE2
+-        c.drawPath(back, tri)
+-        tri.color = (accent and 0x00FFFFFF) or 0x66000000
+-        c.drawPath(front, tri)
+-        tri.style = Paint.Style.STROKE; tri.strokeWidth = 2f * d; tri.color = accent
+-        tri.strokeJoin = Paint.Join.ROUND
+-        c.drawPath(front, tri)
++        c.drawArc(inner, start, sweep * heat.coerceAtLeast(0.02f), false, fill)
+ 
+-        label.textSize = 11f * d
+-        c.drawText("Kontrol", cx, cy - tr - 6f * d, label)
+-        c.drawText("Gambar", cx + tr * 0.95f, cy + tr * 0.62f, label)
+-        c.drawText("Halus", cx - tr * 0.95f, cy + tr * 0.62f, label)
+-        label.textSize = 12f * d
+-        c.drawText("Panas", cx - r * 0.78f, cy + r + 14f * d, label)
+-        c.drawText("Baterai", cx + r * 0.78f, cy + r + 14f * d, label)
++        // Angka di tengah.
++        big.textSize = 30f * d
++        c.drawText("${(battery * 100f).toInt()}%", cx, cy + 6f * d, big)
++        small.textSize = 9.5f * d
++        c.drawText("BATERAI", cx, cy + 24f * d, small)
++        small.color = fill.color
++        c.drawText("SUHU", cx, cy - 26f * d, small)
++        small.color = NX.MUTED
+     }
+ }
+diff --git a/app/src/main/java/com/nexus/asisten/ui/Ui.kt b/app/src/main/java/com/nexus/asisten/ui/Ui.kt
+index 2fe84c9..6ed7040 100644
+--- a/app/src/main/java/com/nexus/asisten/ui/Ui.kt
++++ b/app/src/main/java/com/nexus/asisten/ui/Ui.kt
+@@ -52,41 +52,57 @@ object NX {
+ 
+ fun withAlpha(color: Int, alpha: Int): Int = (color and 0x00FFFFFF) or (alpha.coerceIn(0, 255) shl 24)
+ 
+-/** Latar layar: hitam dengan cahaya neon violet (kanan atas) dan cyan (kiri). */
+-fun screenBg(): Drawable {
+-    val d = Resources.getSystem().displayMetrics.density
+-    val base = GradientDrawable(
+-        GradientDrawable.Orientation.TOP_BOTTOM,
+-        intArrayOf(Color.parseColor("#0D0A24"), NX.BG, Color.parseColor("#03040A"))
+-    )
+-    val glowA = GradientDrawable().apply {
+-        gradientType = GradientDrawable.RADIAL_GRADIENT
+-        setGradientCenter(0.92f, 0.02f)
+-        gradientRadius = 380f * d
+-        colors = intArrayOf(withAlpha(NX.ACCENT, 0x46), 0)
+-    }
+-    val glowB = GradientDrawable().apply {
+-        gradientType = GradientDrawable.RADIAL_GRADIENT
+-        setGradientCenter(0.0f, 0.42f)
+-        gradientRadius = 300f * d
+-        colors = intArrayOf(withAlpha(NX.CYAN, 0x1C), 0)
++/** Latar layar "Obsidian Aurora": hitam pekat, cahaya aurora violet/cyan/magenta, dan kisi titik halus. */
++class AuroraBg : Drawable() {
++    private val base = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val a1 = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val a2 = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val a3 = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val dots = Paint(Paint.ANTI_ALIAS_FLAG)
++    private val fade = Paint(Paint.ANTI_ALIAS_FLAG)
++
++    override fun onBoundsChange(b: android.graphics.Rect) {
++        val w = b.width().toFloat()
++        val h = b.height().toFloat()
++        base.shader = LinearGradient(0f, 0f, 0f, h, intArrayOf(Color.parseColor("#0E0A28"), NX.BG, Color.parseColor("#030409")), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
++        a1.shader = android.graphics.RadialGradient(w * 0.95f, h * 0.02f, w * 1.0f, intArrayOf(withAlpha(NX.ACCENT, 0x58), 0), null, Shader.TileMode.CLAMP)
++        a2.shader = android.graphics.RadialGradient(0f, h * 0.38f, w * 0.85f, intArrayOf(withAlpha(NX.CYAN, 0x26), 0), null, Shader.TileMode.CLAMP)
++        a3.shader = android.graphics.RadialGradient(w * 0.9f, h * 0.97f, w * 0.9f, intArrayOf(withAlpha(NX.MAGENTA, 0x2A), 0), null, Shader.TileMode.CLAMP)
++        val d = Resources.getSystem().displayMetrics.density
++        val ts = (20f * d).toInt().coerceAtLeast(12)
++        val bmp = android.graphics.Bitmap.createBitmap(ts, ts, android.graphics.Bitmap.Config.ARGB_8888)
++        Canvas(bmp).drawCircle(ts / 2f, ts / 2f, d * 0.9f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x1CFFFFFF })
++        dots.shader = android.graphics.BitmapShader(bmp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
++        // Kisi titik memudar ke bawah supaya konten tetap bersih.
++        fade.shader = LinearGradient(0f, 0f, 0f, h, intArrayOf(0x00000000, 0x00030409, 0xFF030409.toInt()), floatArrayOf(0f, 0.25f, 0.85f), Shader.TileMode.CLAMP)
+     }
+-    val glowC = GradientDrawable().apply {
+-        gradientType = GradientDrawable.RADIAL_GRADIENT
+-        setGradientCenter(0.95f, 0.98f)
+-        gradientRadius = 320f * d
+-        colors = intArrayOf(withAlpha(NX.MAGENTA, 0x22), 0)
++
++    override fun draw(c: Canvas) {
++        val r = RectF(bounds)
++        c.drawRect(r, base); c.drawRect(r, a1); c.drawRect(r, a2); c.drawRect(r, a3)
++        val n = c.saveLayer(r, null)
++        c.drawRect(r, dots)
++        fade.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
++        c.drawRect(r, fade)
++        fade.xfermode = null
++        c.restoreToCount(n)
+     }
+-    return LayerDrawable(arrayOf(base, glowA, glowB, glowC))
++
++    override fun setAlpha(alpha: Int) {}
++    override fun setColorFilter(cf: ColorFilter?) {}
++    @Deprecated("Deprecated in Java")
++    override fun getOpacity() = PixelFormat.OPAQUE
+ }
+ 
++fun screenBg(): Drawable = AuroraBg()
++
+ /** Kartu kaca hitam dengan garis tepi gradien neon (stroke gradien tidak ada di GradientDrawable, jadi digambar manual). */
+ class NeonDrawable(
+     private val top: Int,
+     private val bottom: Int,
+     private val radius: Float,
+-    private val c1: Int = withAlpha(NX.ACCENT, 0x99),
+-    private val c2: Int = withAlpha(NX.CYAN, 0x66),
++    private val c1: Int = withAlpha(Color.WHITE, 0x50),
++    private val c2: Int = withAlpha(NX.ACCENT, 0x70),
+     private val strokePx: Float = 1.5f
+ ) : Drawable() {
+     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+@@ -99,12 +115,12 @@ class NeonDrawable(
+         // Kilau kaca tipis di bagian atas kartu.
+         sheen.shader = LinearGradient(
+             0f, b.top.toFloat(), 0f, b.top + b.height() * 0.5f,
+-            0x1AFFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP
++            0x26FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP
+         )
+-        // Tepi neon tiga warna: violet -> cyan -> magenta, mengalir diagonal.
++        // Tepi kaca: putih lembut di sudut atas-kiri, violet di tengah, cyan tipis di sudut bawah-kanan.
+         line.shader = LinearGradient(
+             b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat(),
+-            intArrayOf(c1, c2, withAlpha(NX.MAGENTA, 0x55)), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
++            intArrayOf(c1, c2, withAlpha(NX.CYAN, 0x55)), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
+         )
+         line.strokeWidth = strokePx
+     }
+@@ -208,7 +224,7 @@ fun Context.card(radiusDp: Int = 22, color: Int = NX.SURFACE): LinearLayout = Li
+     orientation = LinearLayout.VERTICAL
+     val r = dpf(radiusDp.toFloat())
+     background = if (color == NX.SURFACE)
+-        NeonDrawable(Color.parseColor("#F2131A33"), Color.parseColor("#F20A0D1A"), r, strokePx = dpf(1.3f))
++        NeonDrawable(Color.parseColor("#E6161C38"), Color.parseColor("#EE090B18"), r, strokePx = dpf(1.2f))
+     else rounded(color, r, NX.LINE, 1)
+     clipToOutline = false
+ }
