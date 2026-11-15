@@ -23,6 +23,9 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
+import com.nexus.asisten.core.FirebaseConfig
 import com.nexus.asisten.core.Avatar
 import com.nexus.asisten.data.Prefs
 import com.nexus.asisten.ui.*
@@ -35,10 +38,12 @@ class ProfileActivity : AppCompatActivity() {
 
     private lateinit var root: LinearLayout
 
-    private fun client() = GoogleSignIn.getClient(
-        this,
-        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestEmail().requestProfile().build()
-    )
+    private fun client(): com.google.android.gms.auth.api.signin.GoogleSignInClient {
+        val web = FirebaseConfig.ensure(this)?.webClientId ?: ""
+        val b = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).requestEmail().requestProfile()
+        if (web.isNotEmpty()) b.requestIdToken(web)
+        return GoogleSignIn.getClient(this, b.build())
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,7 +103,7 @@ class ProfileActivity : AppCompatActivity() {
             val g = card(24)
             g.setPadding(dp(18), dp(18), dp(18), dp(18))
             g.addView(sectionTitle("Akun Google"))
-            g.add(tv("Masuk dengan Gmail untuk menyimpan nama dan foto profil Anda di Nexus.", 13f, NX.TEXT2), t = 8, b = 16)
+            g.add(tv("Masuk dengan Gmail lewat Firebase untuk menyimpan nama dan foto profil Anda di Nexus.", 13f, NX.TEXT2), t = 8, b = 16)
             g.addView(googleButton())
             root.add(g, b = 16)
         } else {
@@ -139,6 +144,11 @@ class ProfileActivity : AppCompatActivity() {
     }
 
     private fun signIn() {
+        val cfg = FirebaseConfig.ensure(this)
+        if (cfg == null || cfg.webClientId.isEmpty()) {
+            Fx.say(this, "Konfigurasi Firebase belum lengkap (google-services.json)", Fx.WARN)
+            return
+        }
         try {
             @Suppress("DEPRECATION")
             startActivityForResult(client().signInIntent, RC_SIGN_IN)
@@ -148,6 +158,7 @@ class ProfileActivity : AppCompatActivity() {
     }
 
     private fun signOut() {
+        try { if (FirebaseConfig.ensure(this) != null) FirebaseAuth.getInstance().signOut() } catch (_: Throwable) {}
         client().signOut().addOnCompleteListener {
             Prefs.googleEmail = ""; Prefs.googleName = ""; Prefs.googlePhoto = ""
             Avatar.clear(this)
@@ -163,14 +174,26 @@ class ProfileActivity : AppCompatActivity() {
         if (requestCode != RC_SIGN_IN) return
         try {
             val acct = GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException::class.java)
-            Prefs.googleEmail = acct.email ?: ""
-            Prefs.googleName = acct.displayName ?: ""
-            Prefs.googlePhoto = acct.photoUrl?.toString() ?: ""
-            val first = (acct.givenName ?: acct.displayName ?: "").trim()
-            if (first.isNotEmpty()) Prefs.userName = first
-            Fx.say(this, "Berhasil masuk", Fx.OK)
-            build()
-            if (Prefs.googlePhoto.isNotEmpty()) Avatar.fetch(this, Prefs.googlePhoto) { if (!isFinishing) build() }
+            val idToken = acct.idToken
+            if (idToken.isNullOrEmpty()) { setupDialog(10); return }
+            Fx.say(this, "Menghubungkan ke Firebase...")
+            FirebaseAuth.getInstance().signInWithCredential(GoogleAuthProvider.getCredential(idToken, null))
+                .addOnCompleteListener(this) { task ->
+                    if (!task.isSuccessful) {
+                        firebaseError(task.exception)
+                        client().signOut()
+                        return@addOnCompleteListener
+                    }
+                    val u = task.result?.user
+                    Prefs.googleEmail = u?.email ?: acct.email ?: ""
+                    Prefs.googleName = u?.displayName ?: acct.displayName ?: ""
+                    Prefs.googlePhoto = (u?.photoUrl ?: acct.photoUrl)?.toString() ?: ""
+                    val first = (acct.givenName ?: Prefs.googleName).trim()
+                    if (first.isNotEmpty()) Prefs.userName = first
+                    Fx.say(this, "Berhasil masuk", Fx.OK)
+                    build()
+                    if (Prefs.googlePhoto.isNotEmpty()) Avatar.fetch(this, Prefs.googlePhoto) { if (!isFinishing) build() }
+                }
         } catch (e: ApiException) {
             when (e.statusCode) {
                 12501 -> Fx.say(this, "Masuk dibatalkan")
@@ -182,6 +205,18 @@ class ProfileActivity : AppCompatActivity() {
         }
     }
 
+    private fun firebaseError(e: Exception?) {
+        val msg = e?.message ?: "kesalahan tidak diketahui"
+        AlertDialog.Builder(this)
+            .setTitle("Firebase menolak login")
+            .setMessage(
+                msg + "\n\nPeriksa di Firebase Console: Authentication > Sign-in method > Google harus Enabled, " +
+                    "dan API key tidak dibatasi ke nama paket lain."
+            )
+            .setPositiveButton("Tutup", null)
+            .show()
+    }
+
     private fun sha1(): String = try {
         val pi = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
         val sig = pi.signingInfo.apkContentsSigners[0]
@@ -191,12 +226,18 @@ class ProfileActivity : AppCompatActivity() {
     /** Kode 10/12500 hampir selalu berarti OAuth Client Android belum didaftarkan: tampilkan data yang dibutuhkan. */
     private fun setupDialog(code: Int) {
         val sha = sha1()
+        val cfg = FirebaseConfig.ensure(this)
+        val pkgNote = if (cfg != null && !cfg.packageMatches)
+            "\n\nPERHATIAN: google-services.json terdaftar untuk paket \"${cfg.packageInJson}\", sedangkan aplikasi ini \"$packageName\"."
+        else ""
         AlertDialog.Builder(this)
             .setTitle("Login Google belum siap (kode $code)")
             .setMessage(
-                "Daftarkan aplikasi ini di Google Cloud Console (APIs & Services > Credentials > OAuth client ID > Android):\n\n" +
-                    "Package: $packageName\nSHA-1: $sha\n\n" +
-                    "Lalu isi OAuth consent screen dan tambahkan email Anda sebagai Test user."
+                "Di Firebase Console (proyek ${cfg?.projectId ?: "-"}):\n" +
+                    "1. Project settings > Add app > Android, package: $packageName\n" +
+                    "2. Isi SHA-1 sertifikat: $sha\n" +
+                    "3. Authentication > Sign-in method > aktifkan Google\n" +
+                    "4. Unduh google-services.json baru dan ganti berkas app/src/main/assets/google-services.json" + pkgNote
             )
             .setPositiveButton("Salin SHA-1") { _, _ ->
                 val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
