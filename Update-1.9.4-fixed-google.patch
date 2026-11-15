@@ -1,0 +1,40 @@
+diff --git a/app/src/main/assets/google-services.json b/app/src/main/assets/google-services.json
+index 5e4d957..e6397b3 100644
+--- a/app/src/main/assets/google-services.json
++++ b/app/src/main/assets/google-services.json
+@@ -5,6 +5,35 @@
+     "storage_bucket": "aplikasi-d4be8.firebasestorage.app"
+   },
+   "client": [
++    {
++      "client_info": {
++        "mobilesdk_app_id": "1:199785819252:android:fcae88f2c6a0b297383521",
++        "android_client_info": {
++          "package_name": "com.nexus.assiten"
++        }
++      },
++      "oauth_client": [
++        {
++          "client_id": "199785819252-fseg0voijg8caa02sisjqn1fvk015q9o.apps.googleusercontent.com",
++          "client_type": 3
++        }
++      ],
++      "api_key": [
++        {
++          "current_key": "AIzaSyCeSqY8pzqSXehHMXWjsITooI1yBXKPC2o"
++        }
++      ],
++      "services": {
++        "appinvite_service": {
++          "other_platform_oauth_client": [
++            {
++              "client_id": "199785819252-fseg0voijg8caa02sisjqn1fvk015q9o.apps.googleusercontent.com",
++              "client_type": 3
++            }
++          ]
++        }
++      }
++    },
+     {
+       "client_info": {
+         "mobilesdk_app_id": "1:199785819252:android:01b08a4dc71f8276383521",
